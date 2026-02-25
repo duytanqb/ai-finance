@@ -1,0 +1,15 @@
+{
+  "extends": "@packages/typescript-config/node.json",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "rootDir": "./src",
+    "moduleResolution": "NodeNext",
+    "module": "NodeNext",
+    "noEmit": true,
+    "paths": {
+      "@/*": ["./src/*"]
+    }
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["node_modules", "dist", "**/__TESTS__"]
+}

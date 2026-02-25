@@ -1,0 +1,59 @@
+{
+  "name": "nextjs-clean-architecture-starter",
+  "private": true,
+  "scripts": {
+    "build": "turbo build",
+    "dev": "turbo dev --filter=nextjs",
+    "db": "docker compose up -d postgres",
+    "db:migrate": "turbo db:migrate",
+    "db:generate": "turbo db:generate",
+    "db:push": "turbo db:push",
+    "db:studio": "turbo db:studio",
+    "ui:add": "turbo ui:add",
+    "format": "biome format . --write",
+    "lint": "biome lint .",
+    "check": "biome check .",
+    "fix": "biome check --write .",
+    "ci:check": "biome ci .",
+    "check:duplication": "jscpd ./packages ./apps/nextjs/src",
+    "check:unused": "knip",
+    "check:all": "pnpm type-check && pnpm check && pnpm check:duplication && pnpm check:unused && pnpm test",
+    "clean": "turbo clean && rm -rf node_modules",
+    "type-check": "turbo type-check",
+    "test": "turbo test",
+    "test:watch": "turbo test:watch",
+    "test:coverage": "turbo test:coverage",
+    "test:ui": "vitest --ui",
+    "test:e2e": "turbo test:e2e",
+    "setup": "pnpm install && pnpm db && pnpm db:push",
+    "validate": "pnpm type-check && pnpm check && pnpm test",
+    "quick-check": "pnpm type-check && pnpm check",
+    "prepare": "husky"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.3.10",
+    "@commitlint/cli": "^20.3.1",
+    "@commitlint/config-conventional": "^20.3.1",
+    "husky": "^9.1.7",
+    "jscpd": "^4.0.7",
+    "knip": "^5.81.0",
+    "lint-staged": "^16.2.7",
+    "semantic-release": "^24.2.6",
+    "@semantic-release/changelog": "^6.0.3",
+    "@semantic-release/git": "^10.0.1",
+    "turbo": "latest"
+  },
+  "lint-staged": {
+    "*.{ts,tsx,js,jsx}": [
+      "biome check --write --no-errors-on-unmatched"
+    ],
+    "*.{json,md,css,scss,html,yml,yaml}": [
+      "biome format --write --no-errors-on-unmatched"
+    ]
+  },
+  "packageManager": "pnpm@10.26.2",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "version": "1.1.0"
+}
