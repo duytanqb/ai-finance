@@ -4,11 +4,12 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from routers import ai_actions, financial, listing, price, screening
+from routers.market_watch import router as market_watch_router
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: initialize scheduler for daily jobs
+    # Startup: scheduler disabled for dev (use /api/market-watch/digest to trigger manually)
     # from jobs.scheduler import start_scheduler
     # start_scheduler()
     yield
@@ -35,8 +36,15 @@ app.include_router(financial.router, prefix="/api/financial", tags=["Financial"]
 app.include_router(screening.router, prefix="/api/screening", tags=["Screening"])
 app.include_router(listing.router, prefix="/api/listing", tags=["Listing"])
 app.include_router(ai_actions.router, prefix="/api/ai", tags=["AI Actions"])
+app.include_router(market_watch_router, prefix="/api/market-watch", tags=["Market Watch"])
 
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "service": "stock-service"}
+    vnstock_ok = False
+    try:
+        from vnstock import Vnstock
+        vnstock_ok = True
+    except ImportError:
+        pass
+    return {"status": "ok", "service": "stock-service", "vnstock": vnstock_ok}

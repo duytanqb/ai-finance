@@ -1,6 +1,7 @@
 "use client";
 
 import { LineChart, Search, Sparkles } from "lucide-react";
+import Link from "next/link";
 import { useState } from "react";
 
 const POPULAR_STOCKS = [
@@ -123,15 +124,18 @@ export default function StocksPage() {
             {filtered.map((stock) => (
               <tr
                 key={stock.symbol}
-                className="border-b border-zinc-50 dark:border-zinc-900 hover:bg-zinc-50 dark:hover:bg-zinc-900/50 transition-colors"
+                className="border-b border-zinc-50 dark:border-zinc-900 hover:bg-zinc-50 dark:hover:bg-zinc-900/50 transition-colors cursor-pointer"
               >
                 <td className="px-5 py-3">
-                  <span className="font-bold text-sm text-zinc-900 dark:text-zinc-100">
+                  <Link
+                    href={`/stocks/${stock.symbol}`}
+                    className="font-bold text-sm text-zinc-900 dark:text-zinc-100 hover:underline"
+                  >
                     {stock.symbol}
-                  </span>
+                  </Link>
                 </td>
                 <td className="px-5 py-3 text-sm text-zinc-600 dark:text-zinc-400">
-                  {stock.name}
+                  <Link href={`/stocks/${stock.symbol}`}>{stock.name}</Link>
                 </td>
                 <td className="px-5 py-3">
                   <span className="text-xs px-2 py-0.5 rounded-full bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400">
@@ -149,13 +153,15 @@ export default function StocksPage() {
                   </span>
                 </td>
                 <td className="px-5 py-3 text-right">
-                  <button
-                    type="button"
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900 hover:opacity-80 transition-opacity"
-                  >
-                    <Sparkles className="h-3 w-3" />
-                    Analyze
-                  </button>
+                  <Link href={`/stocks/${stock.symbol}`}>
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900 hover:opacity-80 transition-opacity"
+                    >
+                      <Sparkles className="h-3 w-3" />
+                      Analyze
+                    </button>
+                  </Link>
                 </td>
               </tr>
             ))}
