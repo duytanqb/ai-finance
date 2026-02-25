@@ -85,3 +85,4 @@
 **/*.pyc
 **/*.pyo
 **/.mypy_cache/
+.github/workflows/ci.yml
