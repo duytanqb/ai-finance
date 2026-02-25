@@ -126,15 +126,6 @@ export function LoginForm() {
           Reset it
         </Link>
       </p>
-      <p className="text-sm text-muted-foreground text-center mt-2">
-        Don&apos;t have an account?{" "}
-        <Link
-          href="/register"
-          className="font-bold underline hover:no-underline"
-        >
-          Sign up
-        </Link>
-      </p>
     </Form>
   );
 }

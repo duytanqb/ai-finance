@@ -10,6 +10,7 @@ const envSchema = z.object({
     .enum(["development", "production", "test"])
     .default("development"),
   PORT: z.string().default("3000"),
+  ADMIN_EMAILS: z.string().default(""),
 });
 
 export const env = envSchema.parse(process.env);

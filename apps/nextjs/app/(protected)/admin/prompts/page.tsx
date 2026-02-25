@@ -1,9 +1,6 @@
-import { requireAuth } from "@/adapters/guards/auth.guard";
 import { ManagedPromptsTable } from "./_components/managed-prompts-table";
 
-export default async function AdminPromptsPage() {
-  await requireAuth();
-
+export default function AdminPromptsPage() {
   return (
     <div className="flex flex-col gap-6">
       <div className="border-b-3 border-black dark:border-white pb-4">

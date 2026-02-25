@@ -107,7 +107,13 @@ export function PriceChart({ data }: PriceChartProps) {
 
   return (
     <div className="w-full overflow-x-auto">
-      <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-[300px]">
+      <svg
+        viewBox={`0 0 ${width} ${height}`}
+        className="w-full h-[300px]"
+        role="img"
+        aria-label="Stock price chart"
+      >
+        <title>Stock price chart</title>
         {/* Grid lines */}
         {yLabels.map((label) => (
           <line

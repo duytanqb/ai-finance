@@ -1,9 +1,6 @@
-import { requireAuth } from "@/adapters/guards/auth.guard";
 import { UsageDashboard } from "./_components/usage-dashboard";
 
-export default async function AdminUsagePage() {
-  await requireAuth();
-
+export default function AdminUsagePage() {
   return (
     <div className="flex flex-col gap-6">
       <div className="border-b-3 border-black dark:border-white pb-4">
