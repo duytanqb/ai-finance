@@ -15,6 +15,13 @@
       "when": 1768515263727,
       "tag": "0001_gray_magma",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1772030310226,
+      "tag": "0002_superb_black_tarantula",
+      "breakpoints": true
     }
   ]
 }

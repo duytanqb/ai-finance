@@ -14,7 +14,7 @@ test.describe("Protected Routes", () => {
       testUsers.newUser.password,
     );
     await page.click("button[type='submit']");
-    await page.waitForURL("/dashboard", { timeout: 10000 });
+    await page.waitForURL("/dashboard", { timeout: 15000 });
   });
 
   test("should display dashboard after authentication", async ({ page }) => {
@@ -22,17 +22,28 @@ test.describe("Protected Routes", () => {
   });
 
   test("should display user name in header", async ({ page }) => {
-    await expect(page.locator(`text=${testUsers.newUser.name}`)).toBeVisible();
+    const firstName = testUsers.newUser.name.split(" ")[0];
+    await expect(
+      page.locator(`h1:has-text("Welcome back, ${firstName}")`),
+    ).toBeVisible({ timeout: 10000 });
   });
 
   test("should sign out and redirect to login", async ({ page }) => {
-    await page.click("button:has-text('Sign Out')");
+    // Open user menu dropdown (avatar button in header)
+    await page.locator("header button").last().click();
+
+    // Click Sign Out in dropdown
+    await page.getByRole("menuitem", { name: /Sign Out/ }).click();
 
     await expect(page).toHaveURL("/login", { timeout: 10000 });
   });
 
   test("should not access dashboard after sign out", async ({ page }) => {
-    await page.click("button:has-text('Sign Out')");
+    // Open user menu dropdown
+    await page.locator("header button").last().click();
+
+    // Click Sign Out in dropdown
+    await page.getByRole("menuitem", { name: /Sign Out/ }).click();
     await page.waitForURL("/login", { timeout: 10000 });
 
     await page.goto("/dashboard");

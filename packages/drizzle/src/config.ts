@@ -12,7 +12,12 @@ function getDb(): ReturnType<typeof drizzle<typeof schema>> {
     if (!connectionString) {
       throw new Error("DATABASE_URL is not set");
     }
-    const pool = new Pool({ connectionString });
+    const pool = new Pool({
+      connectionString,
+      ssl: connectionString.includes("supabase.com")
+        ? { rejectUnauthorized: false }
+        : undefined,
+    });
     _db = drizzle(pool, { schema });
   }
   return _db;

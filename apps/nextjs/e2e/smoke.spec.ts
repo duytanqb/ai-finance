@@ -4,7 +4,7 @@ test.describe("Smoke Tests", () => {
   test("homepage loads successfully", async ({ page }) => {
     await page.goto("/");
 
-    await expect(page).toHaveTitle(/Next\.js Clean Architecture/i);
+    await expect(page).toHaveTitle(/AI Finance/i);
   });
 
   test("login page loads successfully", async ({ page }) => {

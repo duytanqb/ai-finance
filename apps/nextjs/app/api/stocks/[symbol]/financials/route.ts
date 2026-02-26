@@ -12,10 +12,9 @@ export async function GET(_req: Request, { params }: RouteParams) {
       `/api/financial/${encodeURIComponent(symbol)}/ratios`,
     );
     return NextResponse.json(data);
-  } catch {
-    return NextResponse.json(
-      { error: "Stock service unavailable" },
-      { status: 503 },
-    );
+  } catch (e) {
+    const message =
+      e instanceof Error ? e.message : "Stock service unavailable";
+    return NextResponse.json({ error: message }, { status: 503 });
   }
 }

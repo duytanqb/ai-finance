@@ -1,5 +1,13 @@
 from contextlib import asynccontextmanager
 
+import pandas as pd
+from dotenv import load_dotenv
+
+if not hasattr(pd.DataFrame, "applymap"):
+    pd.DataFrame.applymap = pd.DataFrame.map
+
+load_dotenv()
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -9,11 +17,11 @@ from routers.market_watch import router as market_watch_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: scheduler disabled for dev (use /api/market-watch/digest to trigger manually)
-    # from jobs.scheduler import start_scheduler
-    # start_scheduler()
+    from jobs.scheduler import start_scheduler
+
+    scheduler = start_scheduler()
     yield
-    # Shutdown: cleanup
+    scheduler.shutdown()
 
 
 app = FastAPI(

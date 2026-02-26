@@ -6,6 +6,7 @@ router = APIRouter()
 client = VnstockClient()
 
 
+@router.get("/history/{symbol}")
 @router.get("/{symbol}/history")
 async def get_price_history(
     symbol: str,

@@ -9,8 +9,10 @@ import type { IManagedPromptRepository } from "@/application/ports/managed-promp
 import type { IMessageRepository } from "@/application/ports/message.repository.port";
 import type { IModelRouter } from "@/application/ports/model-router.port";
 import type { IPaymentProvider } from "@/application/ports/payment.provider.port";
+import type { IPortfolioRepository } from "@/application/ports/portfolio-repository.port";
 import type { ISubscriptionRepository } from "@/application/ports/subscription.repository.port";
 import type { IUserRepository } from "@/application/ports/user.repository.port";
+import type { IWatchlistRepository } from "@/application/ports/watchlist-repository.port";
 import type { GetSessionUseCase } from "@/application/use-cases/auth/get-session.use-case";
 import type { SignInUseCase } from "@/application/use-cases/auth/sign-in.use-case";
 import type { SignOutUseCase } from "@/application/use-cases/auth/sign-out.use-case";
@@ -36,6 +38,13 @@ import type { SelectOptimalModelUseCase } from "@/application/use-cases/llm/sele
 import type { SendChatMessageUseCase } from "@/application/use-cases/llm/send-chat-message.use-case";
 import type { SendCompletionUseCase } from "@/application/use-cases/llm/send-completion.use-case";
 import type { StreamCompletionUseCase } from "@/application/use-cases/llm/stream-completion.use-case";
+import type { AddHoldingUseCase } from "@/application/use-cases/portfolio/add-holding.use-case";
+import type { GetPortfolioUseCase } from "@/application/use-cases/portfolio/get-portfolio.use-case";
+import type { RemoveHoldingUseCase } from "@/application/use-cases/portfolio/remove-holding.use-case";
+import type { UpdateHoldingUseCase } from "@/application/use-cases/portfolio/update-holding.use-case";
+import type { AddToWatchlistUseCase } from "@/application/use-cases/watchlist/add-to-watchlist.use-case";
+import type { GetWatchlistUseCase } from "@/application/use-cases/watchlist/get-watchlist.use-case";
+import type { RemoveFromWatchlistUseCase } from "@/application/use-cases/watchlist/remove-from-watchlist.use-case";
 
 export const DI_SYMBOLS = {
   IUserRepository: Symbol.for("IUserRepository"),
@@ -76,6 +85,15 @@ export const DI_SYMBOLS = {
   GetUsageStatsUseCase: Symbol.for("GetUsageStatsUseCase"),
   CheckBudgetUseCase: Symbol.for("CheckBudgetUseCase"),
   ITransactionManagerService: Symbol.for("ITransactionManagerService"),
+  IPortfolioRepository: Symbol.for("IPortfolioRepository"),
+  AddHoldingUseCase: Symbol.for("AddHoldingUseCase"),
+  RemoveHoldingUseCase: Symbol.for("RemoveHoldingUseCase"),
+  UpdateHoldingUseCase: Symbol.for("UpdateHoldingUseCase"),
+  GetPortfolioUseCase: Symbol.for("GetPortfolioUseCase"),
+  IWatchlistRepository: Symbol.for("IWatchlistRepository"),
+  AddToWatchlistUseCase: Symbol.for("AddToWatchlistUseCase"),
+  RemoveFromWatchlistUseCase: Symbol.for("RemoveFromWatchlistUseCase"),
+  GetWatchlistUseCase: Symbol.for("GetWatchlistUseCase"),
 };
 
 export interface DI_RETURN_TYPES {
@@ -117,4 +135,13 @@ export interface DI_RETURN_TYPES {
   GetUsageStatsUseCase: GetUsageStatsUseCase;
   CheckBudgetUseCase: CheckBudgetUseCase;
   ITransactionManagerService: ITransactionManagerService;
+  IPortfolioRepository: IPortfolioRepository;
+  AddHoldingUseCase: AddHoldingUseCase;
+  RemoveHoldingUseCase: RemoveHoldingUseCase;
+  UpdateHoldingUseCase: UpdateHoldingUseCase;
+  GetPortfolioUseCase: GetPortfolioUseCase;
+  IWatchlistRepository: IWatchlistRepository;
+  AddToWatchlistUseCase: AddToWatchlistUseCase;
+  RemoveFromWatchlistUseCase: RemoveFromWatchlistUseCase;
+  GetWatchlistUseCase: GetWatchlistUseCase;
 }

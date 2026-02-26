@@ -21,10 +21,9 @@ export async function GET(req: Request, { params }: RouteParams) {
       `/api/price/${encodeURIComponent(symbol)}/history${qs ? `?${qs}` : ""}`,
     );
     return NextResponse.json(data);
-  } catch {
-    return NextResponse.json(
-      { error: "Stock service unavailable" },
-      { status: 503 },
-    );
+  } catch (e) {
+    const message =
+      e instanceof Error ? e.message : "Stock service unavailable";
+    return NextResponse.json({ error: message }, { status: 503 });
   }
 }

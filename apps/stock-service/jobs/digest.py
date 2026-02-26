@@ -1,10 +1,27 @@
-"""Step 4: Build daily digest by orchestrating the full pipeline."""
+"""Market Watch digest pipeline: scan → news → research → digest → persist."""
 
+import json
+import os
 from datetime import datetime
+
+import httpx
 
 from jobs.daily_scan import run_daily_scan
 from jobs.deep_research import run_deep_research
 from jobs.news_fetch import run_news_fetch
+
+_latest_digest: dict | None = None
+
+
+def get_latest_digest() -> dict | None:
+    return _latest_digest
+
+
+async def run_and_persist() -> dict:
+    """Run the full pipeline and save result to DB via Next.js API."""
+    digest = await run_daily_digest()
+    await _save_to_db(digest)
+    return digest
 
 
 async def run_daily_digest() -> dict:
@@ -12,8 +29,10 @@ async def run_daily_digest() -> dict:
 
     Returns structured digest dict.
     """
+    global _latest_digest
+
     print("=" * 60)
-    print(f"[Digest] Starting daily digest pipeline at {datetime.now()}")
+    print(f"[Digest] Starting pipeline at {datetime.now()}")
     print("=" * 60)
 
     # Step 1: Scan for candidates
@@ -26,7 +45,9 @@ async def run_daily_digest() -> dict:
 
     if not candidates:
         print("[Digest] No candidates found, generating empty digest")
-        return _build_digest([], datetime.now())
+        digest = _build_digest([], datetime.now())
+        _latest_digest = digest
+        return digest
 
     # Step 2: Fetch news
     print("\n[Digest] Step 2/3: News fetch...")
@@ -45,11 +66,30 @@ async def run_daily_digest() -> dict:
         final = [{**c, "ai_analysis": None} for c in enriched]
 
     digest = _build_digest(final, datetime.now())
+    _latest_digest = digest
 
     print(f"\n[Digest] Pipeline complete. {len(digest['top_picks'])} stocks in digest")
     print("=" * 60)
 
     return digest
+
+
+async def _save_to_db(digest: dict) -> None:
+    """POST digest to Next.js API for DB persistence."""
+    app_url = os.environ.get("APP_URL", "http://localhost:3000")
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                f"{app_url}/api/stocks/market-watch",
+                json=digest,
+                timeout=10,
+            )
+            if resp.status_code < 300:
+                print(f"[Digest] Saved to DB via {app_url}")
+            else:
+                print(f"[Digest] DB save failed: HTTP {resp.status_code}")
+    except Exception as e:
+        print(f"[Digest] DB save failed: {e}")
 
 
 def _build_digest(candidates: list[dict], now: datetime) -> dict:
@@ -71,14 +111,14 @@ def _build_digest(candidates: list[dict], now: datetime) -> dict:
             "entry_price": ai.get("entry_price"),
             "target_price": ai.get("target_price"),
             "news_count": len(c.get("news", [])),
-            "top_news": c.get("news", [])[:2],
+            "top_news": c.get("news", [])[:3],
         }
         top_picks.append(pick)
 
     return {
         "date": now.strftime("%Y-%m-%d"),
         "generated_at": now.isoformat(),
-        "market_summary": f"Daily scan found {len(candidates)} undervalued stocks on HOSE/HNX.",
+        "market_summary": f"Quét {len(candidates)} cổ phiếu giá trị trên HOSE/HNX. Lọc theo P/E ≤ 20 và ROE ≥ 10%.",
         "top_picks": top_picks,
         "total_scanned": len(candidates),
     }

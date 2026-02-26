@@ -29,11 +29,14 @@ test.describe("Authentication", () => {
   test("should show validation error for invalid email", async ({ page }) => {
     await page.goto("/login");
 
-    await page.fill("input[type='email']", "invalid-email");
+    // Use email that passes native HTML5 validation but fails Zod
+    await page.fill("input[type='email']", "test@test");
     await page.fill("input[type='password']", "password123");
     await page.click("button[type='submit']");
 
-    await expect(page.locator("text=Invalid email")).toBeVisible();
+    await expect(page.locator("text=Invalid email")).toBeVisible({
+      timeout: 5000,
+    });
   });
 
   test("should show validation error for short password", async ({ page }) => {

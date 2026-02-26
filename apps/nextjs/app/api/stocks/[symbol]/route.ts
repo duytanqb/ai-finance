@@ -9,13 +9,12 @@ export async function GET(_req: Request, { params }: RouteParams) {
   try {
     const { symbol } = await params;
     const data = await stockServiceGet(
-      `/api/price/${encodeURIComponent(symbol)}/board`,
+      `/api/price/board?symbols=${encodeURIComponent(symbol)}`,
     );
     return NextResponse.json(data);
-  } catch {
-    return NextResponse.json(
-      { error: "Stock service unavailable" },
-      { status: 503 },
-    );
+  } catch (e) {
+    const message =
+      e instanceof Error ? e.message : "Stock service unavailable";
+    return NextResponse.json({ error: message }, { status: 503 });
   }
 }

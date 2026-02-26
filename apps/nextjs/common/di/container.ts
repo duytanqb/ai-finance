@@ -8,6 +8,8 @@ import {
   registerEventHandlers,
 } from "./modules/events.module";
 import { createLLMModule } from "./modules/llm.module";
+import { createPortfolioModule } from "./modules/portfolio.module";
+import { createWatchlistModule } from "./modules/watchlist.module";
 import { type DI_RETURN_TYPES, DI_SYMBOLS } from "./types";
 
 let _container: Container | null = null;
@@ -22,6 +24,8 @@ function getContainer(): Container {
     _container.load(Symbol("BillingModule"), createBillingModule());
     _container.load(Symbol("EmailModule"), createEmailModule());
     _container.load(Symbol("LLMModule"), createLLMModule());
+    _container.load(Symbol("PortfolioModule"), createPortfolioModule());
+    _container.load(Symbol("WatchlistModule"), createWatchlistModule());
   }
 
   if (!_initialized) {
