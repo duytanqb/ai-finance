@@ -60,17 +60,7 @@ class VnstockClient:
             if isinstance(board.columns, pd.MultiIndex):
                 board = self._flatten_board_columns(board)
             records = board.to_dict(orient="records")
-            price_fields = (
-                "ref_price", "match_price", "ceiling", "floor",
-                "bid_price_1", "bid_price_2", "bid_price_3",
-                "ask_price_1", "ask_price_2", "ask_price_3",
-                "highest", "lowest", "average",
-            )
             for rec in records:
-                for field in price_fields:
-                    val = self._safe_float(rec.get(field))
-                    if val is not None:
-                        rec[field] = round(val * 1000)
                 ref = self._safe_float(rec.get("ref_price"))
                 price = self._safe_float(rec.get("match_price"))
                 if ref and price:
@@ -216,7 +206,14 @@ class VnstockClient:
             or query_lower in str(s.get("en_organ_name", "")).lower()
         ][:20]
 
-    def screen_stocks(self, filters: dict, max_scan: int = 50) -> list[dict]:
+    def screen_stocks(
+        self,
+        filters: dict,
+        max_scan: int = 50,
+        start_offset: int = 0,
+        include_full_ratios: bool = False,
+        symbol_order: list[str] | None = None,
+    ) -> list[dict]:
         exchange = filters.get("exchange")
         symbols = self.get_all_symbols(exchange)
 
@@ -240,17 +237,27 @@ class VnstockClient:
         results: list[dict] = []
         scanned = 0
         rate_limited = False
-        symbol_list = [s.get("symbol") for s in stock_symbols if s.get("symbol")]
+        if symbol_order:
+            symbol_list = symbol_order
+        else:
+            symbol_list = [s.get("symbol") for s in stock_symbols if s.get("symbol")]
+            symbol_list = symbol_list[start_offset:]
+
+        import time
 
         for ticker in symbol_list:
             if scanned >= max_scan:
                 break
             try:
+                cache_key = f"stock:ratios:{ticker.upper()}"
+                is_cached = cache.get(cache_key) is not None
                 ratios = self.get_financial_ratios(ticker)
                 scanned += 1
+                if not is_cached:
+                    time.sleep(1.1)
                 if not ratios:
                     continue
-                latest = ratios[-1]
+                latest = ratios[0]
 
                 pe = self._safe_float(latest.get("priceToEarning"))
                 pb = self._safe_float(latest.get("priceToBook"))
@@ -274,24 +281,35 @@ class VnstockClient:
                     continue
 
                 symbol_info = next((s for s in stock_symbols if s.get("symbol") == ticker), {})
-                results.append(
-                    {
-                        "symbol": ticker,
-                        "organ_name": symbol_info.get("organ_name", ""),
-                        "exchange": symbol_info.get("exchange", ""),
-                        "pe": pe,
-                        "pb": pb,
-                        "roe": roe,
-                        "market_cap": market_cap,
-                        "dividend_yield": dividend_yield,
-                    }
-                )
+                eps = self._safe_float(latest.get("earningPerShare"))
+                npm = self._safe_float(latest.get("netProfitMargin"))
+                roa = self._safe_float(latest.get("roa"))
+                leverage = self._safe_float(latest.get("financialLeverage"))
+
+                result = {
+                    "symbol": ticker,
+                    "name": symbol_info.get("organ_name", ""),
+                    "exchange": symbol_info.get("exchange", ""),
+                    "pe": pe,
+                    "pb": pb,
+                    "roe": roe,
+                    "eps": eps,
+                    "net_profit_margin": npm,
+                    "roa": roa,
+                    "financial_leverage": leverage,
+                    "market_cap": market_cap,
+                    "dividend_yield": dividend_yield,
+                }
+                if include_full_ratios:
+                    result["ratios"] = latest
+                results.append(result)
             except Exception as exc:
                 exc_str = str(exc).lower()
                 if "rate limit" in exc_str or "429" in exc_str:
-                    logger.warning("Rate limit hit at %d/%d symbols", scanned, len(symbol_list))
-                    rate_limited = True
-                    break
+                    logger.warning("Rate limit hit at %d/%d symbols, waiting 60s...", scanned, len(symbol_list))
+                    time.sleep(60)
+                    scanned -= 1
+                    continue
                 logger.debug("Screening skip %s: %s", ticker, exc)
                 continue
 
