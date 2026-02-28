@@ -1,99 +1,123 @@
-"""Step 1: Daily market scan for undervalued stocks."""
+"""Stage 2: Sector-driven stock discovery.
 
-from datetime import datetime, timedelta
+Given hot sectors from AI news analysis, find candidate stocks within
+those sectors and apply light pre-filters before the quality gate.
+"""
 
+import time
+
+from services.cache import cache
 from services.vnstock_client import VnstockClient
 
+sf = VnstockClient._safe_float
 
-async def run_daily_scan(max_symbols: int = 50) -> list[dict]:
-    """Screen for undervalued stocks based on financial criteria.
 
-    Returns top 10 candidates sorted by score.
+async def run_sector_stock_discovery(
+    hot_sectors: list[dict],
+    max_per_sector: int = 20,
+) -> list[dict]:
+    """Discover stocks from hot sectors identified by AI.
+
+    For each sector:
+      1. Get all stocks in that sector via vnstock industry data
+      2. Fetch financial ratios (with rate-limit throttle)
+      3. Apply light pre-filters (PE > 0, PE < 30, market_cap > 300B)
+      4. Attach sector metadata to each candidate
+
     Args:
-        max_symbols: Max stocks to scan (limited by API rate limits).
+        hot_sectors: List of dicts with sector_name, confidence, thesis, catalysts.
+        max_per_sector: Max stocks to scan per sector (default 20).
+
+    Returns:
+        Deduplicated candidate list with sector metadata.
     """
-    print("[DailyScan] Starting daily scan...")
+    print(f"[SectorScan] Scanning {len(hot_sectors)} hot sectors...")
     client = VnstockClient()
 
-    try:
-        all_symbols = client.get_all_symbols()
-        print(f"[DailyScan] Found {len(all_symbols)} total symbols")
+    seen: set[str] = set()
+    candidates: list[dict] = []
 
-        main_symbols = [
-            s for s in all_symbols
-            if s.get("exchange") in ("HOSE", "HNX") and s.get("type") == "stock"
-        ]
-        print(f"[DailyScan] {len(main_symbols)} stocks on HOSE/HNX")
+    for sector in hot_sectors:
+        sector_name = sector.get("sector_name", "")
+        confidence = sector.get("confidence", 0)
+        thesis = sector.get("thesis", "")
 
-        candidates = []
-        end_date = datetime.now().strftime("%Y-%m-%d")
-        start_date = (datetime.now() - timedelta(days=365)).strftime("%Y-%m-%d")
+        print(f"\n  Sector: {sector_name} (confidence: {confidence})")
 
-        sample = main_symbols[:max_symbols]
+        try:
+            stocks = client.get_stocks_by_industry(sector_name)
+        except Exception as e:
+            print(f"    Failed to get stocks: {e}")
+            continue
 
-        for stock_info in sample:
-            symbol = stock_info.get("symbol", "")
-            if not symbol:
+        stock_only = [s for s in stocks if s.get("type") == "stock"]
+        print(f"    Found {len(stock_only)} stocks in sector")
+
+        scanned = 0
+        for stock in stock_only:
+            if scanned >= max_per_sector:
+                break
+
+            symbol = stock.get("symbol", "")
+            if not symbol or symbol in seen:
                 continue
 
             try:
+                cache_key = f"stock:ratios:{symbol.upper()}"
+                is_cached = cache.get(cache_key) is not None
                 ratios = client.get_financial_ratios(symbol)
+                scanned += 1
+                if not is_cached:
+                    time.sleep(1.1)
+
                 if not ratios:
                     continue
 
-                latest = ratios[-1]
-                pe = client._safe_float(latest.get("priceToEarning"))
-                roe = client._safe_float(latest.get("roe"))
-                eps = client._safe_float(latest.get("earningPerShare"))
+                latest = ratios[0]
+                pe = sf(latest.get("priceToEarning"))
+                market_cap = sf(latest.get("market_cap"))
+                roe = sf(latest.get("roe"))
 
-                if pe is None or roe is None:
+                # Light pre-filters
+                if pe is None or pe <= 0 or pe > 30:
                     continue
-                if pe <= 0 or pe > 20:
-                    continue
-                # ROE is a decimal: 0.15 = 15%
-                if roe < 0.10:
+                if market_cap is not None and market_cap < 0.3:
                     continue
 
-                # Score: higher ROE/PE ratio = better value
-                score = round((roe / pe) * 10000, 2)
+                seen.add(symbol)
+                candidates.append({
+                    "symbol": symbol,
+                    "name": stock.get("organ_name", ""),
+                    "exchange": stock.get("exchange", ""),
+                    "pe": pe,
+                    "pb": sf(latest.get("priceToBook")),
+                    "roe": roe,
+                    "eps": sf(latest.get("earningPerShare")),
+                    "net_profit_margin": sf(latest.get("netProfitMargin")),
+                    "roa": sf(latest.get("roa")),
+                    "financial_leverage": sf(latest.get("financialLeverage")),
+                    "market_cap": market_cap,
+                    "dividend_yield": sf(latest.get("dividend")),
+                    "ratios": latest,
+                    "sector_name": sector_name,
+                    "sector_confidence": confidence,
+                    "sector_thesis": thesis,
+                })
 
-                try:
-                    price_data = client.get_price_history(
-                        symbol, start_date, end_date, "1D"
-                    )
-                    current_price = price_data[-1]["close"] if price_data else None
-                except Exception:
-                    current_price = None
-
-                candidates.append(
-                    {
-                        "symbol": symbol,
-                        "name": stock_info.get("organ_name", ""),
-                        "exchange": stock_info.get("exchange", ""),
-                        "pe": pe,
-                        "roe": roe,
-                        "eps": eps,
-                        "price": current_price,
-                        "score": score,
-                    }
-                )
             except Exception as e:
                 exc_str = str(e).lower()
                 if "rate limit" in exc_str or "429" in exc_str:
-                    print(f"[DailyScan] Rate limit hit, stopping scan early")
-                    break
-                print(f"[DailyScan] Skip {symbol}: {e}")
+                    print(f"    Rate limit hit, waiting 60s...")
+                    time.sleep(60)
+                    scanned -= 1
+                    continue
                 continue
 
-        candidates.sort(key=lambda x: x["score"], reverse=True)
-        top_candidates = candidates[:10]
+        sector_count = sum(1 for c in candidates if c.get("sector_name") == sector_name)
+        print(f"    {sector_count} candidates passed pre-filter")
 
-        print(f"[DailyScan] Found {len(candidates)} candidates, returning top {len(top_candidates)}")
-        for c in top_candidates:
-            print(f"  {c['symbol']}: PE={c['pe']:.1f}, ROE={c['roe']:.2%}, Score={c['score']}")
+    print(f"\n[SectorScan] Total: {len(candidates)} unique candidates from {len(hot_sectors)} sectors")
+    for c in candidates[:10]:
+        print(f"  {c['symbol']}: PE={c.get('pe')}, ROE={c.get('roe')}, Sector={c.get('sector_name')}")
 
-        return top_candidates
-
-    except Exception as e:
-        print(f"[DailyScan] Error: {e}")
-        return []
+    return candidates

@@ -16,7 +16,6 @@ import {
   LayoutDashboard,
   LineChart,
   Menu,
-  Search,
   Settings,
   Shield,
   TrendingUp,
@@ -31,7 +30,6 @@ const navigation = [
   { name: "Portfolio", href: "/portfolio", icon: Briefcase },
   { name: "Watchlist", href: "/watchlist", icon: Eye },
   { name: "Market Watch", href: "/market-watch", icon: TrendingUp },
-  { name: "Screener", href: "/screener", icon: Search },
   { name: "Reports", href: "/reports", icon: BarChart3 },
   { name: "Settings", href: "/settings", icon: Settings },
 ];

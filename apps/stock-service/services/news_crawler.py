@@ -1,7 +1,76 @@
 """News crawler for Vietnam financial news sources."""
 
+import re
+from datetime import datetime, timedelta
+
 import httpx
 from bs4 import BeautifulSoup
+
+MAX_AGE_DAYS = 30
+
+
+def _parse_vn_date(text: str) -> datetime | None:
+    """Parse Vietnamese date strings from CafeF/VnExpress.
+
+    Common formats:
+    - "27/02/2026 10:30"  (DD/MM/YYYY HH:MM)
+    - "27-02-2026"        (DD-MM-YYYY)
+    - "27/02/2026"        (DD/MM/YYYY)
+    - "2 giờ trước"       (relative)
+    - "3 ngày trước"      (relative)
+    - "Thứ Hai, 27/02/2026 10:30 (GMT+7)"
+    """
+    if not text:
+        return None
+
+    text = text.strip()
+
+    # Try relative time: "X giờ trước", "X phút trước", "X ngày trước"
+    relative = re.search(r"(\d+)\s*(phút|giờ|ngày|tuần|tháng)\s*trước", text)
+    if relative:
+        amount = int(relative.group(1))
+        unit = relative.group(2)
+        now = datetime.now()
+        if unit == "phút":
+            return now - timedelta(minutes=amount)
+        if unit == "giờ":
+            return now - timedelta(hours=amount)
+        if unit == "ngày":
+            return now - timedelta(days=amount)
+        if unit == "tuần":
+            return now - timedelta(weeks=amount)
+        if unit == "tháng":
+            return now - timedelta(days=amount * 30)
+        return None
+
+    # Try DD/MM/YYYY HH:MM or DD/MM/YYYY
+    date_match = re.search(r"(\d{1,2})[/-](\d{1,2})[/-](\d{4})", text)
+    if date_match:
+        day, month, year = int(date_match.group(1)), int(date_match.group(2)), int(date_match.group(3))
+        try:
+            return datetime(year, month, day)
+        except ValueError:
+            pass
+
+    # Try YYYY-MM-DD (ISO format)
+    iso_match = re.search(r"(\d{4})-(\d{1,2})-(\d{1,2})", text)
+    if iso_match:
+        year, month, day = int(iso_match.group(1)), int(iso_match.group(2)), int(iso_match.group(3))
+        try:
+            return datetime(year, month, day)
+        except ValueError:
+            pass
+
+    return None
+
+
+def _is_recent(published_at: str, max_days: int = MAX_AGE_DAYS) -> bool:
+    """Check if article date is within max_days."""
+    parsed = _parse_vn_date(published_at)
+    if parsed is None:
+        return False
+    cutoff = datetime.now() - timedelta(days=max_days)
+    return parsed >= cutoff
 
 
 class NewsCrawler:
@@ -14,7 +83,10 @@ class NewsCrawler:
         }
 
     async def crawl_news(self, symbol: str, limit: int = 10) -> list[dict]:
-        """Fetch latest news for a stock symbol from CafeF."""
+        """Fetch latest news for a stock symbol from CafeF + VnExpress.
+
+        Only returns articles published within the last 30 days.
+        """
         results = []
         try:
             async with httpx.AsyncClient(
@@ -25,7 +97,7 @@ class NewsCrawler:
                 resp.raise_for_status()
 
                 soup = BeautifulSoup(resp.text, "html.parser")
-                articles = soup.select(".tlitem, .list-news li, .knswli")[:limit]
+                articles = soup.select(".tlitem, .list-news li, .knswli")[:limit * 2]
 
                 for article in articles:
                     title_el = article.select_one("a[title], h3 a, h2 a")
@@ -43,6 +115,9 @@ class NewsCrawler:
                     date_el = article.select_one(".time, .knswli-time, .dateandcate")
                     published_at = date_el.get_text(strip=True) if date_el else ""
 
+                    if not _is_recent(published_at):
+                        continue
+
                     results.append(
                         {
                             "title": title,
@@ -55,7 +130,6 @@ class NewsCrawler:
         except Exception as e:
             print(f"[NewsCrawler] Error crawling CafeF for {symbol}: {e}")
 
-        # Also try VnExpress
         try:
             async with httpx.AsyncClient(
                 timeout=self.timeout, headers=self.headers
@@ -65,7 +139,7 @@ class NewsCrawler:
                 resp.raise_for_status()
 
                 soup = BeautifulSoup(resp.text, "html.parser")
-                articles = soup.select("article.item-news, .search-item")[:limit]
+                articles = soup.select("article.item-news, .search-item")[:limit * 2]
 
                 for article in articles:
                     title_el = article.select_one("h3 a, h2 a, .title-news a")
@@ -80,6 +154,9 @@ class NewsCrawler:
 
                     date_el = article.select_one(".time-count, .date")
                     published_at = date_el.get_text(strip=True) if date_el else ""
+
+                    if not _is_recent(published_at):
+                        continue
 
                     results.append(
                         {
@@ -96,7 +173,7 @@ class NewsCrawler:
         return results[:limit]
 
     async def crawl_market_news(self, limit: int = 20) -> list[dict]:
-        """Fetch general market news from CafeF."""
+        """Fetch general market news from CafeF. Only recent articles."""
         results = []
         try:
             async with httpx.AsyncClient(
@@ -107,7 +184,7 @@ class NewsCrawler:
                 resp.raise_for_status()
 
                 soup = BeautifulSoup(resp.text, "html.parser")
-                articles = soup.select(".tlitem, .list-news li, .knswli")[:limit]
+                articles = soup.select(".tlitem, .list-news li, .knswli")[:limit * 2]
 
                 for article in articles:
                     title_el = article.select_one("a[title], h3 a, h2 a")
@@ -124,6 +201,9 @@ class NewsCrawler:
 
                     date_el = article.select_one(".time, .knswli-time, .dateandcate")
                     published_at = date_el.get_text(strip=True) if date_el else ""
+
+                    if not _is_recent(published_at):
+                        continue
 
                     results.append(
                         {

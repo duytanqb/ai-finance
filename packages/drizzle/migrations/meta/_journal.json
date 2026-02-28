@@ -22,6 +22,20 @@
       "when": 1772030310226,
       "tag": "0002_superb_black_tarantula",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1772206910740,
+      "tag": "0003_wild_hellfire_club",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1772293598183,
+      "tag": "0004_lively_spacker_dave",
+      "breakpoints": true
     }
   ]
 }

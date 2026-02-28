@@ -2,13 +2,17 @@
 
 import {
   ArrowDownRight,
+  ArrowRight,
   ArrowUpRight,
+  Check,
   Loader2,
+  Pencil,
   Plus,
   Sparkles,
   Trash2,
   X,
 } from "lucide-react";
+import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 
 interface Holding {
@@ -23,6 +27,25 @@ interface Holding {
   changePercent?: number;
 }
 
+interface AIHoldingReview {
+  symbol: string;
+  action: string;
+  reasoning: string;
+  urgency: string;
+}
+
+interface AIReviewResult {
+  holdings: AIHoldingReview[];
+  portfolio_summary: string;
+}
+
+const HORIZON_LABELS: Record<string, string> = {
+  "short-term": "Ngắn hạn",
+  "medium-term": "Trung hạn",
+  "long-term": "Dài hạn",
+  "hold-forever": "Nắm giữ",
+};
+
 const HORIZON_COLORS: Record<string, string> = {
   "short-term":
     "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400",
@@ -34,11 +57,18 @@ const HORIZON_COLORS: Record<string, string> = {
     "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400",
 };
 
+const ACTION_COLORS: Record<string, string> = {
+  HOLD: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
+  SELL: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
+  ADD_MORE:
+    "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400",
+};
+
 const HORIZONS = [
-  { value: "short-term", label: "Short-term" },
-  { value: "medium-term", label: "Medium-term" },
-  { value: "long-term", label: "Long-term" },
-  { value: "hold-forever", label: "Hold Forever" },
+  { value: "short-term", label: "Ngắn hạn (< 1 tháng)" },
+  { value: "medium-term", label: "Trung hạn (1-6 tháng)" },
+  { value: "long-term", label: "Dài hạn (6-12 tháng)" },
+  { value: "hold-forever", label: "Nắm giữ (> 1 năm)" },
 ];
 
 function formatVND(value: number): string {
@@ -51,6 +81,16 @@ export default function PortfolioPage() {
   const [showAddForm, setShowAddForm] = useState(false);
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editData, setEditData] = useState({
+    quantity: "",
+    averagePrice: "",
+    horizon: "",
+  });
+  const [saving, setSaving] = useState(false);
+
+  const [aiReview, setAiReview] = useState<AIReviewResult | null>(null);
+  const [reviewing, setReviewing] = useState(false);
 
   const [formSymbol, setFormSymbol] = useState("");
   const [formQuantity, setFormQuantity] = useState("");
@@ -152,7 +192,7 @@ export default function PortfolioPage() {
   };
 
   const handleDelete = async (id: string, symbol: string) => {
-    if (!confirm(`Remove ${symbol} from portfolio?`)) return;
+    if (!confirm(`Xóa ${symbol} khỏi danh mục?`)) return;
 
     try {
       const res = await fetch(`/api/portfolio/${id}`, { method: "DELETE" });
@@ -161,9 +201,91 @@ export default function PortfolioPage() {
         throw new Error(data.error || "Failed to remove holding");
       }
       setHoldings((prev) => prev.filter((h) => h.id !== id));
+      setAiReview(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to remove holding");
     }
+  };
+
+  const startEdit = (h: Holding) => {
+    setEditingId(h.id);
+    setEditData({
+      quantity: String(h.quantity),
+      averagePrice: String(h.averagePrice),
+      horizon: h.horizon,
+    });
+  };
+
+  const cancelEdit = () => {
+    setEditingId(null);
+  };
+
+  const handleSaveEdit = async (id: string) => {
+    setSaving(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/portfolio/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          quantity: Number(editData.quantity),
+          averagePrice: Number(editData.averagePrice),
+          horizon: editData.horizon,
+        }),
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || "Failed to update holding");
+      }
+      setEditingId(null);
+      setLoading(true);
+      fetchHoldings();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to update");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleAIReview = async () => {
+    if (holdings.length === 0) return;
+    setReviewing(true);
+    setError(null);
+    setAiReview(null);
+
+    try {
+      const payload = holdings.map((h) => ({
+        symbol: h.symbol,
+        quantity: h.quantity,
+        averagePrice: h.averagePrice,
+        currentPrice: h.currentPrice,
+        horizon: h.horizon,
+        pnlPercent:
+          h.currentPrice && h.averagePrice > 0
+            ? ((h.currentPrice - h.averagePrice) / h.averagePrice) * 100
+            : 0,
+      }));
+
+      const res = await fetch("/api/portfolio/review", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ holdings: payload }),
+      });
+
+      if (!res.ok) throw new Error("AI review failed");
+      const data = await res.json();
+      setAiReview(data.review);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to get AI review");
+    } finally {
+      setReviewing(false);
+    }
+  };
+
+  const getAIAction = (symbol: string): AIHoldingReview | undefined => {
+    return aiReview?.holdings.find(
+      (h) => h.symbol.toUpperCase() === symbol.toUpperCase(),
+    );
   };
 
   const totalValue = holdings.reduce(
@@ -175,6 +297,7 @@ export default function PortfolioPage() {
     0,
   );
   const totalPnl = totalValue - totalCost;
+  const totalPnlPct = totalCost > 0 ? (totalPnl / totalCost) * 100 : 0;
   const winCount = holdings.filter(
     (h) => h.currentPrice && h.currentPrice > h.averagePrice,
   ).length;
@@ -196,19 +319,25 @@ export default function PortfolioPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-zinc-900 dark:text-zinc-100">
-            Portfolio
+            Danh mục đầu tư
           </h1>
           <p className="text-sm text-zinc-500 mt-1">
-            Track holdings and get AI suggestions
+            Theo dõi danh mục và nhận khuyến nghị AI
           </p>
         </div>
         <div className="flex gap-2">
           <button
             type="button"
-            className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900 hover:opacity-80 transition-opacity"
+            onClick={handleAIReview}
+            disabled={reviewing || holdings.length === 0}
+            className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900 hover:opacity-80 transition-opacity disabled:opacity-50"
           >
-            <Sparkles className="h-3.5 w-3.5" />
-            AI Review
+            {reviewing ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Sparkles className="h-3.5 w-3.5" />
+            )}
+            {reviewing ? "Đang phân tích..." : "AI Review"}
           </button>
           <button
             type="button"
@@ -216,14 +345,23 @@ export default function PortfolioPage() {
             className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg border border-zinc-200 dark:border-zinc-700 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
           >
             <Plus className="h-3.5 w-3.5" />
-            Add Holding
+            Thêm
           </button>
         </div>
       </div>
 
       {error && (
-        <div className="rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 p-3 text-sm text-red-600 dark:text-red-400">
-          {error}
+        <div className="rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 p-3 flex items-center justify-between">
+          <span className="text-sm text-red-600 dark:text-red-400">
+            {error}
+          </span>
+          <button
+            type="button"
+            onClick={() => setError(null)}
+            className="text-red-400 hover:text-red-600"
+          >
+            <X className="h-4 w-4" />
+          </button>
         </div>
       )}
 
@@ -232,7 +370,7 @@ export default function PortfolioPage() {
         <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-5">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
-              Add Holding
+              Thêm cổ phiếu
             </h2>
             <button
               type="button"
@@ -245,7 +383,7 @@ export default function PortfolioPage() {
           <form onSubmit={handleAdd} className="flex gap-3 items-end flex-wrap">
             <div>
               <label className="block text-xs text-zinc-500 mb-1">
-                Symbol
+                Mã CK
                 <input
                   type="text"
                   value={formSymbol}
@@ -258,7 +396,7 @@ export default function PortfolioPage() {
             </div>
             <div>
               <label className="block text-xs text-zinc-500 mb-1">
-                Quantity
+                Số lượng
                 <input
                   type="number"
                   value={formQuantity}
@@ -272,7 +410,7 @@ export default function PortfolioPage() {
             </div>
             <div>
               <label className="block text-xs text-zinc-500 mb-1">
-                Avg Price (VND)
+                Giá TB (VND)
                 <input
                   type="number"
                   value={formAvgPrice}
@@ -286,7 +424,7 @@ export default function PortfolioPage() {
             </div>
             <div>
               <label className="block text-xs text-zinc-500 mb-1">
-                Horizon
+                Kỳ hạn
                 <select
                   value={formHorizon}
                   onChange={(e) => setFormHorizon(e.target.value)}
@@ -310,7 +448,7 @@ export default function PortfolioPage() {
               ) : (
                 <Plus className="h-3.5 w-3.5" />
               )}
-              {adding ? "Adding..." : "Add"}
+              {adding ? "Đang thêm..." : "Thêm"}
             </button>
           </form>
         </div>
@@ -320,126 +458,306 @@ export default function PortfolioPage() {
       {holdings.length > 0 && (
         <div className="grid gap-4 md:grid-cols-4">
           <SummaryCard
-            label="Total Value"
+            label="Tổng giá trị"
             value={`${formatVND(Math.round(totalValue))} VND`}
           />
           <SummaryCard
-            label="Total P&L"
-            value={`${totalPnl >= 0 ? "+" : ""}${formatVND(Math.round(totalPnl))} VND`}
+            label="Lãi/Lỗ"
+            value={`${totalPnl >= 0 ? "+" : ""}${formatVND(Math.round(totalPnl))} (${totalPnlPct >= 0 ? "+" : ""}${totalPnlPct.toFixed(1)}%)`}
             positive={totalPnl >= 0}
           />
-          <SummaryCard label="Win Rate" value={`${winRate}%`} />
-          <SummaryCard
-            label="Holdings"
-            value={`${holdings.length} stock${holdings.length !== 1 ? "s" : ""}`}
-          />
+          <SummaryCard label="Tỷ lệ thắng" value={`${winRate}%`} />
+          <SummaryCard label="Cổ phiếu" value={`${holdings.length} mã`} />
+        </div>
+      )}
+
+      {/* AI Review Result */}
+      {reviewing && (
+        <div className="rounded-xl border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/30 p-5 flex items-center gap-3">
+          <Loader2 className="h-5 w-5 animate-spin text-blue-500" />
+          <span className="text-sm text-blue-600 dark:text-blue-400">
+            AI đang phân tích danh mục của bạn...
+          </span>
+        </div>
+      )}
+
+      {aiReview && (
+        <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-5 space-y-4">
+          <div className="flex items-center gap-2">
+            <Sparkles className="h-4 w-4 text-amber-500" />
+            <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+              AI Portfolio Review
+            </h2>
+          </div>
+          <p className="text-sm text-zinc-600 dark:text-zinc-400 leading-relaxed">
+            {aiReview.portfolio_summary}
+          </p>
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            {aiReview.holdings.map((h) => (
+              <div
+                key={h.symbol}
+                className="rounded-lg border border-zinc-100 dark:border-zinc-800 p-3"
+              >
+                <div className="flex items-center gap-2 mb-1.5">
+                  <Link
+                    href={`/stocks/${h.symbol}`}
+                    className="font-bold text-sm text-zinc-900 dark:text-zinc-100 hover:underline"
+                  >
+                    {h.symbol}
+                  </Link>
+                  <span
+                    className={`text-xs font-bold px-2 py-0.5 rounded-full ${ACTION_COLORS[h.action] || ACTION_COLORS.HOLD}`}
+                  >
+                    {h.action === "ADD_MORE"
+                      ? "MUA THÊM"
+                      : h.action === "SELL"
+                        ? "BÁN"
+                        : "GIỮ"}
+                  </span>
+                  {h.urgency === "high" && (
+                    <span className="text-xs text-red-500 font-medium">
+                      Khẩn cấp
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs text-zinc-500 leading-relaxed">
+                  {h.reasoning}
+                </p>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
       {/* Holdings Table */}
       {holdings.length > 0 ? (
         <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 overflow-hidden">
-          <table className="w-full">
-            <thead>
-              <tr className="border-b border-zinc-100 dark:border-zinc-800">
-                <th className="text-left text-xs font-medium text-zinc-500 uppercase tracking-wide px-5 py-3">
-                  Stock
-                </th>
-                <th className="text-right text-xs font-medium text-zinc-500 uppercase tracking-wide px-5 py-3">
-                  Qty
-                </th>
-                <th className="text-right text-xs font-medium text-zinc-500 uppercase tracking-wide px-5 py-3">
-                  Avg Price
-                </th>
-                <th className="text-right text-xs font-medium text-zinc-500 uppercase tracking-wide px-5 py-3">
-                  Current
-                </th>
-                <th className="text-right text-xs font-medium text-zinc-500 uppercase tracking-wide px-5 py-3">
-                  P&L
-                </th>
-                <th className="text-center text-xs font-medium text-zinc-500 uppercase tracking-wide px-5 py-3">
-                  Horizon
-                </th>
-                <th className="text-center text-xs font-medium text-zinc-500 uppercase tracking-wide px-3 py-3" />
-              </tr>
-            </thead>
-            <tbody>
-              {holdings.map((h) => {
-                const current = h.currentPrice || h.averagePrice;
-                const pnl = (current - h.averagePrice) * h.quantity;
-                const pnlPercent =
-                  h.averagePrice > 0
-                    ? ((current - h.averagePrice) / h.averagePrice) * 100
-                    : 0;
-                const positive = pnl >= 0;
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-zinc-100 dark:border-zinc-800">
+                  <th className="text-left text-xs font-medium text-zinc-500 uppercase tracking-wide px-5 py-3">
+                    Cổ phiếu
+                  </th>
+                  <th className="text-right text-xs font-medium text-zinc-500 uppercase tracking-wide px-5 py-3">
+                    SL
+                  </th>
+                  <th className="text-right text-xs font-medium text-zinc-500 uppercase tracking-wide px-5 py-3">
+                    Giá TB
+                  </th>
+                  <th className="text-right text-xs font-medium text-zinc-500 uppercase tracking-wide px-5 py-3">
+                    Giá hiện tại
+                  </th>
+                  <th className="text-right text-xs font-medium text-zinc-500 uppercase tracking-wide px-5 py-3">
+                    Lãi/Lỗ
+                  </th>
+                  <th className="text-center text-xs font-medium text-zinc-500 uppercase tracking-wide px-5 py-3">
+                    Kỳ hạn
+                  </th>
+                  {aiReview && (
+                    <th className="text-center text-xs font-medium text-zinc-500 uppercase tracking-wide px-5 py-3">
+                      AI
+                    </th>
+                  )}
+                  <th className="text-center text-xs font-medium text-zinc-500 uppercase tracking-wide px-3 py-3 w-20" />
+                </tr>
+              </thead>
+              <tbody>
+                {holdings.map((h) => {
+                  const current = h.currentPrice || h.averagePrice;
+                  const pnl = (current - h.averagePrice) * h.quantity;
+                  const pnlPercent =
+                    h.averagePrice > 0
+                      ? ((current - h.averagePrice) / h.averagePrice) * 100
+                      : 0;
+                  const positive = pnl >= 0;
+                  const isEditing = editingId === h.id;
+                  const aiAction = getAIAction(h.symbol);
 
-                return (
-                  <tr
-                    key={h.id}
-                    className="border-b border-zinc-50 dark:border-zinc-900 hover:bg-zinc-50 dark:hover:bg-zinc-900/50 transition-colors"
-                  >
-                    <td className="px-5 py-3">
-                      <div className="font-bold text-sm text-zinc-900 dark:text-zinc-100">
-                        {h.symbol}
-                      </div>
-                    </td>
-                    <td className="px-5 py-3 text-right text-sm font-mono text-zinc-600 dark:text-zinc-400">
-                      {formatVND(h.quantity)}
-                    </td>
-                    <td className="px-5 py-3 text-right text-sm font-mono text-zinc-600 dark:text-zinc-400">
-                      {formatVND(h.averagePrice)}
-                    </td>
-                    <td className="px-5 py-3 text-right text-sm font-mono text-zinc-900 dark:text-zinc-100">
-                      {h.currentPrice ? formatVND(h.currentPrice) : "-"}
-                    </td>
-                    <td className="px-5 py-3 text-right">
-                      <div className="flex items-center justify-end gap-1">
-                        {positive ? (
-                          <ArrowUpRight className="h-3.5 w-3.5 text-emerald-600" />
+                  return (
+                    <tr
+                      key={h.id}
+                      className="border-b border-zinc-50 dark:border-zinc-900 hover:bg-zinc-50 dark:hover:bg-zinc-900/50 transition-colors"
+                    >
+                      <td className="px-5 py-3">
+                        <Link
+                          href={`/stocks/${h.symbol}`}
+                          className="font-bold text-sm text-zinc-900 dark:text-zinc-100 hover:text-blue-600 dark:hover:text-blue-400 hover:underline transition-colors"
+                        >
+                          {h.symbol}
+                        </Link>
+                      </td>
+                      <td className="px-5 py-3 text-right">
+                        {isEditing ? (
+                          <input
+                            type="number"
+                            value={editData.quantity}
+                            onChange={(e) =>
+                              setEditData({
+                                ...editData,
+                                quantity: e.target.value,
+                              })
+                            }
+                            min="1"
+                            className="w-20 px-2 py-1 text-sm text-right rounded border border-zinc-300 dark:border-zinc-600 bg-zinc-50 dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100"
+                          />
                         ) : (
-                          <ArrowDownRight className="h-3.5 w-3.5 text-red-500" />
+                          <span className="text-sm font-mono text-zinc-600 dark:text-zinc-400">
+                            {formatVND(h.quantity)}
+                          </span>
                         )}
-                        <span
-                          className={`text-sm font-medium ${positive ? "text-emerald-600" : "text-red-500"}`}
+                      </td>
+                      <td className="px-5 py-3 text-right">
+                        {isEditing ? (
+                          <input
+                            type="number"
+                            value={editData.averagePrice}
+                            onChange={(e) =>
+                              setEditData({
+                                ...editData,
+                                averagePrice: e.target.value,
+                              })
+                            }
+                            min="1"
+                            className="w-24 px-2 py-1 text-sm text-right rounded border border-zinc-300 dark:border-zinc-600 bg-zinc-50 dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100"
+                          />
+                        ) : (
+                          <span className="text-sm font-mono text-zinc-600 dark:text-zinc-400">
+                            {formatVND(h.averagePrice)}
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-5 py-3 text-right text-sm font-mono text-zinc-900 dark:text-zinc-100">
+                        {h.currentPrice ? formatVND(h.currentPrice) : "-"}
+                      </td>
+                      <td className="px-5 py-3 text-right">
+                        <div className="flex items-center justify-end gap-1">
+                          {positive ? (
+                            <ArrowUpRight className="h-3.5 w-3.5 text-emerald-600" />
+                          ) : (
+                            <ArrowDownRight className="h-3.5 w-3.5 text-red-500" />
+                          )}
+                          <span
+                            className={`text-sm font-medium ${positive ? "text-emerald-600" : "text-red-500"}`}
+                          >
+                            {positive ? "+" : ""}
+                            {pnlPercent.toFixed(1)}%
+                          </span>
+                        </div>
+                        <div
+                          className={`text-xs ${positive ? "text-emerald-600" : "text-red-500"}`}
                         >
                           {positive ? "+" : ""}
-                          {pnlPercent.toFixed(1)}%
-                        </span>
-                      </div>
-                      <div
-                        className={`text-xs ${positive ? "text-emerald-600" : "text-red-500"}`}
-                      >
-                        {positive ? "+" : ""}
-                        {formatVND(Math.round(pnl))}
-                      </div>
-                    </td>
-                    <td className="px-5 py-3 text-center">
-                      <span
-                        className={`text-xs px-2 py-0.5 rounded-full font-medium ${HORIZON_COLORS[h.horizon] || ""}`}
-                      >
-                        {h.horizon}
-                      </span>
-                    </td>
-                    <td className="px-3 py-3 text-center">
-                      <button
-                        type="button"
-                        onClick={() => handleDelete(h.id, h.symbol)}
-                        className="p-1.5 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-400 hover:text-red-500 transition-colors"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                          {formatVND(Math.round(pnl))}
+                        </div>
+                      </td>
+                      <td className="px-5 py-3 text-center">
+                        {isEditing ? (
+                          <select
+                            value={editData.horizon}
+                            onChange={(e) =>
+                              setEditData({
+                                ...editData,
+                                horizon: e.target.value,
+                              })
+                            }
+                            className="text-xs px-2 py-1 rounded border border-zinc-300 dark:border-zinc-600 bg-zinc-50 dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100"
+                          >
+                            {HORIZONS.map((ho) => (
+                              <option key={ho.value} value={ho.value}>
+                                {ho.label}
+                              </option>
+                            ))}
+                          </select>
+                        ) : (
+                          <span
+                            className={`text-xs px-2 py-0.5 rounded-full font-medium ${HORIZON_COLORS[h.horizon] || ""}`}
+                          >
+                            {HORIZON_LABELS[h.horizon] || h.horizon}
+                          </span>
+                        )}
+                      </td>
+                      {aiReview && (
+                        <td className="px-5 py-3 text-center">
+                          {aiAction && (
+                            <span
+                              className={`text-xs font-bold px-2 py-0.5 rounded-full ${ACTION_COLORS[aiAction.action] || ACTION_COLORS.HOLD}`}
+                              title={aiAction.reasoning}
+                            >
+                              {aiAction.action === "ADD_MORE"
+                                ? "MUA THÊM"
+                                : aiAction.action === "SELL"
+                                  ? "BÁN"
+                                  : "GIỮ"}
+                            </span>
+                          )}
+                        </td>
+                      )}
+                      <td className="px-3 py-3 text-center">
+                        <div className="flex items-center justify-center gap-1">
+                          {isEditing ? (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => handleSaveEdit(h.id)}
+                                disabled={saving}
+                                className="p-1.5 rounded-lg hover:bg-emerald-100 dark:hover:bg-emerald-900/30 text-emerald-600 transition-colors"
+                              >
+                                {saving ? (
+                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : (
+                                  <Check className="h-4 w-4" />
+                                )}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={cancelEdit}
+                                className="p-1.5 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-400 transition-colors"
+                              >
+                                <X className="h-4 w-4" />
+                              </button>
+                            </>
+                          ) : (
+                            <>
+                              <Link
+                                href={`/stocks/${h.symbol}`}
+                                className="p-1.5 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-400 hover:text-blue-500 transition-colors"
+                                title="Phân tích chi tiết"
+                              >
+                                <ArrowRight className="h-4 w-4" />
+                              </Link>
+                              <button
+                                type="button"
+                                onClick={() => startEdit(h)}
+                                className="p-1.5 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-400 hover:text-zinc-600 transition-colors"
+                                title="Chỉnh sửa"
+                              >
+                                <Pencil className="h-4 w-4" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDelete(h.id, h.symbol)}
+                                className="p-1.5 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-400 hover:text-red-500 transition-colors"
+                                title="Xóa"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
       ) : (
         <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-12 text-center text-zinc-400">
           <Plus className="h-8 w-8 mx-auto mb-3 opacity-50" />
-          <p className="text-sm">Your portfolio is empty</p>
-          <p className="text-xs mt-1">Add holdings to start tracking</p>
+          <p className="text-sm">Danh mục trống</p>
+          <p className="text-xs mt-1">Thêm cổ phiếu để bắt đầu theo dõi</p>
         </div>
       )}
     </div>

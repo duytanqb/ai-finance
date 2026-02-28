@@ -195,6 +195,43 @@ class VnstockClient:
 
         return self._cached(key, TTL_LISTING, fetch)
 
+    def get_symbols_by_industries(self) -> list[dict]:
+        key = "stock:industries:all"
+
+        def fetch():
+            from vnstock import Listing
+
+            df = Listing().symbols_by_industries()
+            df = df.fillna("")
+            return df.to_dict(orient="records")
+
+        return self._cached(key, TTL_LISTING, fetch)
+
+    def get_stocks_by_industry(self, industry_name: str) -> list[dict]:
+        industries = self.get_symbols_by_industries()
+        all_symbols = self.get_all_symbols()
+        symbol_info = {s.get("symbol"): s for s in all_symbols}
+
+        matched = []
+        seen = set()
+        for row in industries:
+            name = str(row.get("industry_name", ""))
+            if industry_name.lower() not in name.lower():
+                continue
+            sym = row.get("symbol", "")
+            if not sym or sym in seen:
+                continue
+            seen.add(sym)
+            info = symbol_info.get(sym, {})
+            matched.append({
+                "symbol": sym,
+                "organ_name": info.get("organ_name", ""),
+                "exchange": info.get("exchange", ""),
+                "industry_name": name,
+                "type": info.get("type", ""),
+            })
+        return matched
+
     def search_symbol(self, query: str) -> list[dict]:
         symbols = self.get_all_symbols()
         query_lower = query.lower()
