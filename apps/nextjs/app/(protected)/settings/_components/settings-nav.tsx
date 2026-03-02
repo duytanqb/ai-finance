@@ -1,13 +1,14 @@
 "use client";
 
 import { cn } from "@packages/ui/index";
-import { CreditCard, User } from "lucide-react";
+import { CreditCard, LineChart, User } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 const navItems = [
   { name: "Profile", href: "/settings", icon: User },
   { name: "Billing", href: "/settings/billing", icon: CreditCard },
+  { name: "Trading", href: "/settings/trading", icon: LineChart },
 ];
 
 export function SettingsNav() {

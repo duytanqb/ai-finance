@@ -75,6 +75,27 @@ export const marketWatchDigest = pgTable(
   (table) => [index("market_watch_digest_created_idx").on(table.createdAt)],
 );
 
+export const userCredential = pgTable(
+  "user_credential",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    provider: text("provider").notNull(),
+    encryptedCredentials: text("encrypted_credentials").notNull(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => [
+    unique("user_credential_user_provider_uniq").on(
+      table.userId,
+      table.provider,
+    ),
+    index("user_credential_user_idx").on(table.userId),
+  ],
+);
+
 export const analysisReport = pgTable(
   "analysis_report",
   {

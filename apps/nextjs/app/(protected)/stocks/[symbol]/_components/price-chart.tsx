@@ -1,6 +1,21 @@
 "use client";
 
 import { useTheme } from "@packages/ui/index";
+import {
+  AreaSeries,
+  type CandlestickData,
+  CandlestickSeries,
+  ColorType,
+  createChart,
+  HistogramSeries,
+  type IChartApi,
+  type ISeriesApi,
+  type LineData,
+  LineSeries,
+  type SeriesType,
+  type Time,
+} from "lightweight-charts";
+import { Loader2 } from "lucide-react";
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 
 interface PriceChartProps {
@@ -8,111 +23,258 @@ interface PriceChartProps {
   exchange?: string;
 }
 
-type Interval = "D" | "W" | "M";
-type Style = "1" | "2" | "3" | "0" | "8";
+type Interval = "1" | "5" | "15" | "30" | "1H" | "1D" | "1W";
+type ChartStyle = "candle" | "line" | "area";
 
 const INTERVALS: { label: string; value: Interval }[] = [
-  { label: "Daily", value: "D" },
-  { label: "Weekly", value: "W" },
-  { label: "Monthly", value: "M" },
+  { label: "1m", value: "1" },
+  { label: "5m", value: "5" },
+  { label: "15m", value: "15" },
+  { label: "30m", value: "30" },
+  { label: "1H", value: "1H" },
+  { label: "1D", value: "1D" },
+  { label: "1W", value: "1W" },
 ];
 
-const STYLES: { label: string; value: Style }[] = [
-  { label: "Candle", value: "1" },
-  { label: "Line", value: "2" },
-  { label: "Area", value: "3" },
-  { label: "Bar", value: "0" },
-  { label: "Heikin Ashi", value: "8" },
+const STYLES: { label: string; value: ChartStyle }[] = [
+  { label: "Candle", value: "candle" },
+  { label: "Line", value: "line" },
+  { label: "Area", value: "area" },
 ];
 
-interface StudyDef {
-  id: string;
-  label: string;
+interface OhlcCandle {
+  time: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
 }
 
-const AVAILABLE_STUDIES: StudyDef[] = [
-  { id: "MASimple@tv-basicstudies", label: "MA" },
-  { id: "BB@tv-basicstudies", label: "BB" },
-  { id: "RSI@tv-basicstudies", label: "RSI" },
-  { id: "MACD@tv-basicstudies", label: "MACD" },
-];
+function toPriceVND(val: number): number {
+  return val * 1000;
+}
 
-const DEFAULT_STUDIES = ["MASimple@tv-basicstudies"];
+function toChartTime(unix: number): Time {
+  return unix as Time;
+}
 
-const WIDGET_SCRIPT_URL =
-  "https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js";
+function getLookbackSeconds(interval: Interval): number {
+  switch (interval) {
+    case "1":
+      return 3 * 86400;
+    case "5":
+      return 7 * 86400;
+    case "15":
+      return 14 * 86400;
+    case "30":
+      return 30 * 86400;
+    case "1H":
+      return 60 * 86400;
+    case "1D":
+      return 365 * 86400;
+    case "1W":
+      return 3 * 365 * 86400;
+    default:
+      return 365 * 86400;
+  }
+}
 
-function PriceChartInner({ symbol, exchange = "HOSE" }: PriceChartProps) {
-  const containerRef = useRef<HTMLDivElement>(null);
+function PriceChartInner({ symbol }: PriceChartProps) {
+  const chartContainerRef = useRef<HTMLDivElement>(null);
+  const chartRef = useRef<IChartApi | null>(null);
+  const seriesRef = useRef<ISeriesApi<SeriesType> | null>(null);
+  const volumeSeriesRef = useRef<ISeriesApi<"Histogram"> | null>(null);
   const { resolvedTheme } = useTheme();
-  const [interval, setInterval] = useState<Interval>("D");
-  const [style, setStyle] = useState<Style>("1");
-  const [activeStudies, setActiveStudies] = useState<string[]>(DEFAULT_STUDIES);
+  const [interval, setInterval] = useState<Interval>("1D");
+  const [chartStyle, setChartStyle] = useState<ChartStyle>("candle");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const isDark = resolvedTheme === "dark";
+
+  const fetchData = useCallback(
+    async (res: Interval): Promise<OhlcCandle[]> => {
+      const now = Math.floor(Date.now() / 1000);
+      const from = now - getLookbackSeconds(res);
+      const params = new URLSearchParams({
+        source: "dnse",
+        interval: res,
+        from_ts: String(from),
+        to_ts: String(now),
+      });
+      const resp = await fetch(
+        `/api/stocks/${encodeURIComponent(symbol)}/price?${params}`,
+      );
+      if (!resp.ok) throw new Error("Failed to fetch price data");
+      const json = await resp.json();
+      return (json.data || []) as OhlcCandle[];
+    },
+    [symbol],
+  );
 
   useEffect(() => {
-    const container = containerRef.current;
+    const container = chartContainerRef.current;
     if (!container) return;
 
-    container.innerHTML = "";
+    if (chartRef.current) {
+      chartRef.current.remove();
+      chartRef.current = null;
+      seriesRef.current = null;
+      volumeSeriesRef.current = null;
+    }
 
-    const widgetDiv = document.createElement("div");
-    widgetDiv.className = "tradingview-widget-container";
-    widgetDiv.style.height = "100%";
-    widgetDiv.style.width = "100%";
-
-    const innerDiv = document.createElement("div");
-    innerDiv.className = "tradingview-widget-container__widget";
-    innerDiv.style.height = "calc(100% - 32px)";
-    innerDiv.style.width = "100%";
-    widgetDiv.appendChild(innerDiv);
-
-    const script = document.createElement("script");
-    script.src = WIDGET_SCRIPT_URL;
-    script.type = "text/javascript";
-    script.async = true;
-    script.textContent = JSON.stringify({
-      autosize: true,
-      symbol: `${exchange}:${symbol}`,
-      interval,
-      timezone: "Asia/Ho_Chi_Minh",
-      theme: resolvedTheme === "dark" ? "dark" : "light",
-      style,
-      locale: "vi_VN",
-      allow_symbol_change: false,
-      withdateranges: true,
-      hide_side_toolbar: false,
-      studies: activeStudies,
-      save_image: true,
-      support_host: "https://www.tradingview.com",
+    const chart = createChart(container, {
+      width: container.clientWidth,
+      height: 500,
+      layout: {
+        background: { type: ColorType.Solid, color: "transparent" },
+        textColor: isDark ? "#a1a1aa" : "#71717a",
+        fontFamily: "ui-monospace, monospace",
+        fontSize: 11,
+      },
+      grid: {
+        vertLines: { color: isDark ? "#27272a" : "#f4f4f5" },
+        horzLines: { color: isDark ? "#27272a" : "#f4f4f5" },
+      },
+      crosshair: {
+        vertLine: {
+          color: isDark ? "#52525b" : "#d4d4d8",
+          labelBackgroundColor: isDark ? "#3f3f46" : "#e4e4e7",
+        },
+        horzLine: {
+          color: isDark ? "#52525b" : "#d4d4d8",
+          labelBackgroundColor: isDark ? "#3f3f46" : "#e4e4e7",
+        },
+      },
+      rightPriceScale: {
+        borderColor: isDark ? "#27272a" : "#e4e4e7",
+      },
+      timeScale: {
+        borderColor: isDark ? "#27272a" : "#e4e4e7",
+        timeVisible: ["1", "5", "15", "30", "1H"].includes(interval),
+        secondsVisible: false,
+      },
+      localization: {
+        priceFormatter: (price: number) => price.toLocaleString("vi-VN"),
+      },
     });
 
-    widgetDiv.appendChild(script);
-    container.appendChild(widgetDiv);
+    chartRef.current = chart;
+
+    if (chartStyle === "candle") {
+      seriesRef.current = chart.addSeries(CandlestickSeries, {
+        upColor: "#22c55e",
+        downColor: "#ef4444",
+        borderUpColor: "#22c55e",
+        borderDownColor: "#ef4444",
+        wickUpColor: "#22c55e",
+        wickDownColor: "#ef4444",
+      });
+    } else if (chartStyle === "line") {
+      seriesRef.current = chart.addSeries(LineSeries, {
+        color: isDark ? "#60a5fa" : "#2563eb",
+        lineWidth: 2,
+      });
+    } else {
+      seriesRef.current = chart.addSeries(AreaSeries, {
+        topColor: isDark ? "rgba(96,165,250,0.4)" : "rgba(37,99,235,0.4)",
+        bottomColor: isDark ? "rgba(96,165,250,0.0)" : "rgba(37,99,235,0.0)",
+        lineColor: isDark ? "#60a5fa" : "#2563eb",
+        lineWidth: 2,
+      });
+    }
+
+    const volumeSeries = chart.addSeries(HistogramSeries, {
+      priceFormat: { type: "volume" },
+      priceScaleId: "volume",
+    });
+    chart.priceScale("volume").applyOptions({
+      scaleMargins: { top: 0.8, bottom: 0 },
+    });
+    volumeSeriesRef.current = volumeSeries;
+
+    setLoading(true);
+    setError(null);
+    fetchData(interval)
+      .then((candles) => {
+        if (!chartRef.current) return;
+
+        if (candles.length === 0) {
+          setError("No data available for this period");
+          setLoading(false);
+          return;
+        }
+
+        if (chartStyle === "candle") {
+          const candleData = candles.map((c) => ({
+            time: toChartTime(c.time),
+            open: toPriceVND(c.open),
+            high: toPriceVND(c.high),
+            low: toPriceVND(c.low),
+            close: toPriceVND(c.close),
+          })) as CandlestickData[];
+          seriesRef.current?.setData(candleData);
+        } else {
+          const lineData = candles.map((c) => ({
+            time: toChartTime(c.time),
+            value: toPriceVND(c.close),
+          })) as LineData[];
+          seriesRef.current?.setData(lineData);
+        }
+
+        const volData = candles.map((c) => ({
+          time: toChartTime(c.time),
+          value: c.volume,
+          color:
+            c.close >= c.open
+              ? isDark
+                ? "rgba(34,197,94,0.3)"
+                : "rgba(34,197,94,0.4)"
+              : isDark
+                ? "rgba(239,68,68,0.3)"
+                : "rgba(239,68,68,0.4)",
+        }));
+        volumeSeriesRef.current?.setData(volData);
+
+        chart.timeScale().fitContent();
+        setLoading(false);
+      })
+      .catch((err) => {
+        setError(err.message);
+        setLoading(false);
+      });
+
+    const handleResize = () => {
+      if (chartRef.current && container) {
+        chartRef.current.applyOptions({ width: container.clientWidth });
+      }
+    };
+    const observer = new ResizeObserver(handleResize);
+    observer.observe(container);
 
     return () => {
-      container.innerHTML = "";
+      observer.disconnect();
+      if (chartRef.current) {
+        chartRef.current.remove();
+        chartRef.current = null;
+        seriesRef.current = null;
+        volumeSeriesRef.current = null;
+      }
     };
-  }, [symbol, exchange, interval, style, activeStudies, resolvedTheme]);
-
-  const toggleStudy = useCallback((id: string) => {
-    setActiveStudies((prev) =>
-      prev.includes(id) ? prev.filter((s) => s !== id) : [...prev, id],
-    );
-  }, []);
+  }, [interval, chartStyle, isDark, fetchData]);
 
   return (
     <div className="space-y-3">
-      {/* Controls */}
       <div className="flex flex-wrap items-center gap-2">
-        {/* Style selector */}
         <div className="flex rounded-lg border border-zinc-200 dark:border-zinc-700 overflow-hidden text-xs">
           {STYLES.map((s) => (
             <button
               key={s.value}
               type="button"
-              onClick={() => setStyle(s.value)}
+              onClick={() => setChartStyle(s.value)}
               className={`px-2 py-1 transition-colors ${
-                style === s.value
+                chartStyle === s.value
                   ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
                   : "text-zinc-600 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-800"
               }`}
@@ -122,7 +284,6 @@ function PriceChartInner({ symbol, exchange = "HOSE" }: PriceChartProps) {
           ))}
         </div>
 
-        {/* Interval selector */}
         <div className="flex rounded-lg border border-zinc-200 dark:border-zinc-700 overflow-hidden text-xs">
           {INTERVALS.map((i) => (
             <button
@@ -139,35 +300,23 @@ function PriceChartInner({ symbol, exchange = "HOSE" }: PriceChartProps) {
             </button>
           ))}
         </div>
+
+        <span className="text-[10px] text-zinc-400 ml-auto">DNSE</span>
       </div>
 
-      {/* Studies toggles */}
-      <div className="flex flex-wrap items-center gap-1.5">
-        <span className="text-xs text-zinc-500 mr-1">Indicators:</span>
-        {AVAILABLE_STUDIES.map((s) => {
-          const isActive = activeStudies.includes(s.id);
-          return (
-            <button
-              key={s.id}
-              type="button"
-              onClick={() => toggleStudy(s.id)}
-              className={`text-xs px-2 py-0.5 rounded-full border transition-colors ${
-                isActive
-                  ? "bg-zinc-900 border-zinc-700 text-white dark:bg-zinc-100 dark:border-zinc-300 dark:text-zinc-900"
-                  : "border-zinc-200 dark:border-zinc-700 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300"
-              }`}
-            >
-              {s.label}
-            </button>
-          );
-        })}
+      <div className="relative w-full h-[500px] rounded-lg overflow-hidden">
+        {loading && (
+          <div className="absolute inset-0 flex items-center justify-center z-10 bg-white/80 dark:bg-zinc-950/80">
+            <Loader2 className="h-5 w-5 animate-spin text-zinc-400" />
+          </div>
+        )}
+        {error && !loading && (
+          <div className="absolute inset-0 flex items-center justify-center z-10">
+            <p className="text-sm text-zinc-400">{error}</p>
+          </div>
+        )}
+        <div ref={chartContainerRef} className="w-full h-full" />
       </div>
-
-      {/* TradingView Widget */}
-      <div
-        ref={containerRef}
-        className="w-full h-[500px] rounded-lg overflow-hidden"
-      />
     </div>
   );
 }
