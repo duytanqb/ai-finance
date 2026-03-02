@@ -1,6 +1,7 @@
 """Stage 4: AI quality gate — sector-aware batch assess + full analysis on top picks."""
 
 import os
+from collections.abc import Callable
 
 
 def _build_sector_context(candidates: list[dict], sector_analysis: dict) -> str:
@@ -34,6 +35,7 @@ def _build_sector_context(candidates: list[dict], sector_analysis: dict) -> str:
 async def run_deep_research(
     candidates: list[dict],
     sector_analysis: dict | None = None,
+    on_progress: Callable[[str], None] | None = None,
 ) -> list[dict]:
     """Two-tier AI assessment with sector context.
 
@@ -57,6 +59,8 @@ async def run_deep_research(
     ai = AIWorkflowService()
 
     # Tier A: Batch quick assess with sector context
+    if on_progress:
+        on_progress(f"Đánh giá nhanh {len(candidates)} cổ phiếu...")
     print(f"[AIGate] Tier A: Quick assessing {len(candidates)} candidates...")
     try:
         if sector_analysis:
@@ -81,9 +85,11 @@ async def run_deep_research(
     rest = passed[5:]
 
     enriched = []
-    for candidate in top_for_analysis:
+    for ai_i, candidate in enumerate(top_for_analysis):
         symbol = candidate["symbol"]
         try:
+            if on_progress:
+                on_progress(f"Phân tích chuyên sâu {symbol} ({ai_i + 1}/{len(top_for_analysis)})")
             print(f"  [AIGate] Full analysis (chart+financials+news): {symbol}...")
             result = await ai.full_analysis(symbol)
             analysis = result.get("analysis", {})

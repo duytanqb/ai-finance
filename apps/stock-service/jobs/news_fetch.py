@@ -1,33 +1,51 @@
 """News fetching: per-candidate enrichment + market-wide discovery."""
 
+import asyncio
 import os
+from collections.abc import Callable
 
 from services.news_crawler import NewsCrawler
 from services.vnstock_client import VnstockClient
 
+BATCH_SIZE = 5
 
-async def run_news_fetch(candidates: list[dict]) -> list[dict]:
-    """Fetch news for each candidate stock.
+
+async def run_news_fetch(
+    candidates: list[dict],
+    on_progress: Callable[[str], None] | None = None,
+) -> list[dict]:
+    """Fetch news for each candidate stock in parallel batches.
 
     Args:
         candidates: List with symbol, name, pe, roe, etc.
+        on_progress: Optional callback for progress reporting.
 
     Returns:
         Enriched candidates with news list attached.
     """
-    print(f"[NewsFetch] Fetching news for {len(candidates)} candidates...")
+    print(f"[NewsFetch] Fetching news for {len(candidates)} candidates (batch size={BATCH_SIZE})...")
     crawler = NewsCrawler()
-
     enriched = []
-    for candidate in candidates:
-        symbol = candidate["symbol"]
-        try:
-            news = await crawler.crawl_news(symbol, limit=5)
-            print(f"  {symbol}: {len(news)} articles found")
-            enriched.append({**candidate, "news": news})
-        except Exception as e:
-            print(f"  {symbol}: news fetch failed - {e}")
-            enriched.append({**candidate, "news": []})
+    total_batches = (len(candidates) + BATCH_SIZE - 1) // BATCH_SIZE
+
+    for i in range(0, len(candidates), BATCH_SIZE):
+        batch = candidates[i:i + BATCH_SIZE]
+        batch_num = i // BATCH_SIZE + 1
+        symbols = ", ".join(c["symbol"] for c in batch)
+
+        if on_progress:
+            on_progress(f"Đang tải tin cho {symbols} (batch {batch_num}/{total_batches})")
+
+        tasks = [crawler.crawl_news(c["symbol"], limit=5) for c in batch]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        for candidate, result in zip(batch, results):
+            if isinstance(result, list):
+                print(f"  {candidate['symbol']}: {len(result)} articles found")
+                enriched.append({**candidate, "news": result})
+            else:
+                print(f"  {candidate['symbol']}: news fetch failed - {result}")
+                enriched.append({**candidate, "news": []})
 
     print(f"[NewsFetch] Done. {sum(len(c.get('news', [])) for c in enriched)} total articles")
     return enriched

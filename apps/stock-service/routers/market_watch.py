@@ -2,6 +2,7 @@
 
 import asyncio
 import threading
+import time
 from datetime import datetime
 
 from fastapi import APIRouter, Query
@@ -9,13 +10,65 @@ from fastapi import APIRouter, Query
 router = APIRouter()
 
 _pipeline_thread: threading.Thread | None = None
-_pipeline_started_at: str | None = None
-_pipeline_error: str | None = None
-_pipeline_done: bool = False
+
+_pipeline_state: dict = {
+    "status": "idle",
+    "started_at": None,
+    "error": None,
+    "current_stage": 0,
+    "current_stage_name": "",
+    "stage_detail": "",
+    "stages": [],
+}
 
 
 def _is_pipeline_running() -> bool:
     return _pipeline_thread is not None and _pipeline_thread.is_alive()
+
+
+def update_progress(stage: int, name: str, detail: str = "") -> None:
+    _pipeline_state["current_stage"] = stage
+    _pipeline_state["current_stage_name"] = name
+    _pipeline_state["stage_detail"] = detail
+
+
+def complete_stage(stage: int, name: str, result: str = "") -> None:
+    stage_entry = next(
+        (s for s in _pipeline_state["stages"] if s["stage"] == stage), None
+    )
+    if stage_entry:
+        stage_entry["result"] = result
+        stage_entry["completed_at"] = time.time()
+        stage_entry["duration"] = round(
+            stage_entry["completed_at"] - stage_entry["started_at"], 1
+        )
+    else:
+        now = time.time()
+        _pipeline_state["stages"].append({
+            "stage": stage,
+            "name": name,
+            "result": result,
+            "started_at": now,
+            "completed_at": now,
+            "duration": 0,
+        })
+    _pipeline_state["stage_detail"] = ""
+
+
+def _start_stage(stage: int, name: str) -> None:
+    update_progress(stage, name)
+    existing = next(
+        (s for s in _pipeline_state["stages"] if s["stage"] == stage), None
+    )
+    if not existing:
+        _pipeline_state["stages"].append({
+            "stage": stage,
+            "name": name,
+            "result": "",
+            "started_at": time.time(),
+            "completed_at": None,
+            "duration": None,
+        })
 
 
 @router.post("/digest")
@@ -24,22 +77,25 @@ async def trigger_digest():
 
     Poll GET /status for results.
     """
-    global _pipeline_thread, _pipeline_started_at, _pipeline_error, _pipeline_done
+    global _pipeline_thread
 
     if _is_pipeline_running():
-        return {"status": "running", "started_at": _pipeline_started_at}
+        return {"status": "running", "started_at": _pipeline_state["started_at"]}
 
-    _pipeline_started_at = datetime.now().isoformat()
-    _pipeline_error = None
-    _pipeline_done = False
+    _pipeline_state["status"] = "running"
+    _pipeline_state["started_at"] = datetime.now().isoformat()
+    _pipeline_state["error"] = None
+    _pipeline_state["current_stage"] = 0
+    _pipeline_state["current_stage_name"] = ""
+    _pipeline_state["stage_detail"] = ""
+    _pipeline_state["stages"] = []
     _pipeline_thread = threading.Thread(target=_run_pipeline_sync, daemon=True)
     _pipeline_thread.start()
-    return {"status": "started", "started_at": _pipeline_started_at}
+    return {"status": "started", "started_at": _pipeline_state["started_at"]}
 
 
 def _run_pipeline_sync():
     """Run the full digest pipeline in a separate thread (non-blocking)."""
-    global _pipeline_error, _pipeline_done
     try:
         import asyncio as _asyncio
         loop = _asyncio.new_event_loop()
@@ -49,11 +105,11 @@ def _run_pipeline_sync():
             loop.run_until_complete(run_and_persist())
         finally:
             loop.close()
-        _pipeline_done = True
+        _pipeline_state["status"] = "completed"
         print("[MarketWatch] Background pipeline completed")
     except Exception as e:
-        _pipeline_error = str(e)
-        _pipeline_done = True
+        _pipeline_state["status"] = "error"
+        _pipeline_state["error"] = str(e)
         print(f"[MarketWatch] Background pipeline failed: {e}")
 
 
@@ -82,25 +138,42 @@ async def get_pipeline_status():
     """Check pipeline status and get latest result."""
     from jobs.digest import get_latest_digest as _get_latest
 
-    if _is_pipeline_running():
+    status = _pipeline_state["status"]
+
+    if _is_pipeline_running() or status == "running":
         return {
             "status": "running",
-            "started_at": _pipeline_started_at,
+            "started_at": _pipeline_state["started_at"],
+            "current_stage": _pipeline_state["current_stage"],
+            "current_stage_name": _pipeline_state["current_stage_name"],
+            "stage_detail": _pipeline_state["stage_detail"],
+            "stages": _pipeline_state["stages"],
         }
 
-    if _pipeline_done and _pipeline_error:
+    if status == "error":
         return {
             "status": "error",
-            "error": _pipeline_error,
-            "started_at": _pipeline_started_at,
+            "error": _pipeline_state["error"],
+            "started_at": _pipeline_state["started_at"],
+            "stages": _pipeline_state["stages"],
         }
+
+    if status == "completed":
+        cached = _get_latest()
+        if cached:
+            return {
+                "status": "completed",
+                "digest": cached,
+                "started_at": _pipeline_state["started_at"],
+                "stages": _pipeline_state["stages"],
+            }
 
     cached = _get_latest()
     if cached:
         return {
             "status": "completed",
             "digest": cached,
-            "started_at": _pipeline_started_at,
+            "started_at": _pipeline_state["started_at"],
         }
 
     return {"status": "idle"}

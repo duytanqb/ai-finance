@@ -34,153 +34,394 @@ pip install -r requirements.txt
 uvicorn main:app --reload --port 8000
 ```
 
+## Deploy to Ubuntu VPS
+
+### Architecture
+
+```
+Internet → Nginx (443/80)
+              ├── / → Next.js (localhost:3000)
+              └── /stock-api/ → Python FastAPI (localhost:8000)
+
+Next.js ←→ Python service (internal, localhost:8000)
+Next.js ←→ PostgreSQL (Supabase remote)
+Python  ←→ Redis (localhost:6379)
+```
+
+### Prerequisites
+
+- Ubuntu 22.04+ VPS (2GB RAM minimum, 4GB recommended)
+- Domain name pointed to VPS IP
+- Supabase project (PostgreSQL)
+
+### Step 1: Server Setup
+
+```bash
+# Update system
+sudo apt update && sudo apt upgrade -y
+
+# Install Node.js 22
+curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
+sudo apt install -y nodejs
+
+# Install pnpm
+npm install -g pnpm
+
+# Install Python 3.12
+sudo apt install -y python3.12 python3.12-venv python3-pip
+
+# Install Redis
+sudo apt install -y redis-server
+sudo systemctl enable redis-server
+
+# Install Nginx
+sudo apt install -y nginx
+sudo systemctl enable nginx
+
+# Install PM2 (process manager)
+npm install -g pm2
+```
+
+### Step 2: Clone and Build
+
+```bash
+# Clone repo
+cd /opt
+sudo mkdir ai-finance && sudo chown $USER:$USER ai-finance
+git clone <repo-url> ai-finance
+cd ai-finance
+
+# Install dependencies
+pnpm install
+
+# Setup Python service
+cd apps/stock-service
+python3.12 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+deactivate
+cd /opt/ai-finance
+
+# Build Next.js
+pnpm build
+```
+
+### Step 3: Environment Variables
+
+```bash
+# Next.js env
+cat > /opt/ai-finance/.env << 'EOF'
+DATABASE_URL=postgresql://postgres.xxx:password@aws-0-region.pooler.supabase.com:6543/postgres
+NEXT_PUBLIC_APP_URL=https://yourdomain.com
+BETTER_AUTH_SECRET=<openssl rand -base64 32>
+BETTER_AUTH_URL=https://yourdomain.com
+STOCK_SERVICE_URL=http://localhost:8000
+EOF
+
+# Python service env
+cat > /opt/ai-finance/apps/stock-service/.env << 'EOF'
+ANTHROPIC_API_KEY=sk-ant-xxx
+REDIS_URL=redis://localhost:6379
+CORS_ORIGINS=https://yourdomain.com,http://localhost:3000
+APP_URL=http://localhost:3000
+EOF
+```
+
+### Step 4: Push DB Schema
+
+```bash
+cd /opt/ai-finance
+pnpm db:push
+```
+
+### Step 5: PM2 Process Management
+
+```bash
+# Create PM2 ecosystem config
+cat > /opt/ai-finance/ecosystem.config.cjs << 'EOF'
+module.exports = {
+  apps: [
+    {
+      name: "nextjs",
+      cwd: "/opt/ai-finance/apps/nextjs",
+      script: "node",
+      args: ".next/standalone/apps/nextjs/server.js",
+      env: {
+        NODE_ENV: "production",
+        PORT: 3000,
+        HOSTNAME: "0.0.0.0",
+      },
+    },
+    {
+      name: "stock-service",
+      cwd: "/opt/ai-finance/apps/stock-service",
+      script: "/opt/ai-finance/apps/stock-service/venv/bin/uvicorn",
+      args: "main:app --host 0.0.0.0 --port 8000 --workers 2",
+      interpreter: "none",
+      env: {
+        PATH: "/opt/ai-finance/apps/stock-service/venv/bin:/usr/bin:/bin",
+      },
+    },
+  ],
+};
+EOF
+
+# Copy standalone static files (Next.js standalone needs this)
+cp -r /opt/ai-finance/apps/nextjs/.next/static /opt/ai-finance/apps/nextjs/.next/standalone/apps/nextjs/.next/static
+cp -r /opt/ai-finance/apps/nextjs/public /opt/ai-finance/apps/nextjs/.next/standalone/apps/nextjs/public
+
+# Start services
+cd /opt/ai-finance
+pm2 start ecosystem.config.cjs
+pm2 save
+pm2 startup  # Follow printed instructions to enable on boot
+```
+
+### Step 6: Nginx Reverse Proxy + SSL
+
+```bash
+# Install Certbot
+sudo apt install -y certbot python3-certbot-nginx
+
+# Create Nginx config
+sudo cat > /etc/nginx/sites-available/ai-finance << 'EOF'
+server {
+    listen 80;
+    server_name yourdomain.com;
+
+    location / {
+        proxy_pass http://localhost:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_cache_bypass $http_upgrade;
+    }
+}
+EOF
+
+# Enable site
+sudo ln -s /etc/nginx/sites-available/ai-finance /etc/nginx/sites-enabled/
+sudo rm -f /etc/nginx/sites-enabled/default
+sudo nginx -t && sudo systemctl reload nginx
+
+# SSL certificate
+sudo certbot --nginx -d yourdomain.com
+```
+
+### Step 7: Verify
+
+```bash
+# Check processes
+pm2 status
+
+# Check health
+curl http://localhost:3000
+curl http://localhost:8000/health
+
+# Check logs
+pm2 logs nextjs --lines 20
+pm2 logs stock-service --lines 20
+```
+
+### Deploy Updates
+
+```bash
+cd /opt/ai-finance
+git pull origin main
+pnpm install
+pnpm build
+
+# Copy static files for standalone
+cp -r apps/nextjs/.next/static apps/nextjs/.next/standalone/apps/nextjs/.next/static
+
+# Update Python deps if needed
+cd apps/stock-service && source venv/bin/activate && pip install -r requirements.txt && deactivate
+cd /opt/ai-finance
+
+# Restart
+pm2 restart all
+```
+
+### Monitoring
+
+```bash
+pm2 monit           # Real-time dashboard
+pm2 logs             # All logs
+pm2 logs nextjs      # Next.js only
+pm2 logs stock-service  # Python only
+sudo systemctl status redis-server
+sudo systemctl status nginx
+```
+
 ## Core Features
 
-### Phase 1 — Foundation
-- [ ] Stock lookup by ticker (search + autocomplete)
-- [ ] Price charts with technical indicators (MA, RSI, MACD, Bollinger Bands)
-- [ ] Company financial statements (income, balance sheet, cash flow)
-- [ ] Fundamental metrics dashboard (P/E, P/B, ROE, EPS)
-- [ ] **[AI Action] "Analyze Stock" button** — triggers workflow:
-  1. Fetch price history + candle chart pattern recognition
-  2. Pull financial reports + ratios
-  3. Crawl latest news + sentiment analysis
-  4. AI summarizes into structured report with BUY / WATCH / AVOID
+### Phase 1 — Foundation (Done)
+- [x] Stock lookup by ticker — full-page search with 300ms debounce, popular stocks default
+- [x] Price charts — TradingView Advanced Chart embed (Candle/Line/Area/Bar/Heikin Ashi, MA/BB/RSI/MACD indicators)
+- [x] Fundamental metrics — P/E, ROE, EPS, P/B, D/E, Market Cap on stock detail page
+- [x] **"Analyze Stock" AI button** — fetches price + financials + news → Claude Sonnet → BUY/WATCH/AVOID report, persisted to DB
+- [ ] Full financial statements UI (income, balance sheet, cash flow) — API exists, frontend not built
 
-### Phase 2 — Portfolio & Watchlist
-- [ ] Portfolio management with **investment horizon** per holding:
-  - `short-term` (< 1 month), `medium-term` (1-6 months), `long-term` (6-12 months), `hold-forever` (> 1 year)
-- [ ] **Daily price & P&L update** — automated after market close
-- [ ] **AI hold/sell suggestions** — daily per holding (HOLD / SELL / ADD MORE with reasoning)
-- [ ] Portfolio performance dashboard (returns, P&L, win rate, vs VN-Index benchmark)
+### Phase 2 — Portfolio & Watchlist (Mostly Done)
+- [x] Portfolio CRUD with **investment horizon** (`short-term`, `medium-term`, `long-term`, `hold-forever`) — full Clean Architecture (domain/use-cases/repository)
+- [x] **AI portfolio review** — on-demand HOLD/SELL/ADD_MORE per holding with reasoning (button on portfolio page)
+- [x] Portfolio P&L — total value, total P&L %, win rate, holding count
+- [x] Watchlist — table layout with price, change, ref price, high/low, volume, target price proximity, clickable symbols
+- [x] Value screener — filter by exchange, P/E, P/B, ROE, market cap, dividend yield (page exists at `/screener`, not in nav)
+- [ ] Daily automated P&L update after market close
+- [ ] VN-Index benchmark comparison (dashboard shows "Coming soon")
 - [ ] Asset allocation breakdown (by sector, exchange, horizon)
-- [ ] Watchlist with real-time price monitoring
-- [ ] Value screener (filter by P/E, ROE, market cap, dividend yield)
 
-### Phase 3 — Market Watch (Daily AI Analyst)
-- [ ] **Daily Market Scanner** — cron after market close (3:30 PM VN)
-- [ ] **News Aggregation Pipeline** — crawl CafeF, VnExpress, summarize + sentiment tag
-- [ ] **AI Deep Research Reports** — auto-generated for top undervalued picks
-- [ ] **Daily Digest** — "Stocks to Watch" with confidence score, entry/target price
-- [ ] **Market Watch Dashboard** — timeline feed, filter by sector/action/confidence
+### Phase 3 — Market Watch (Done)
+- [x] **Sector-first pipeline** — 5-stage funnel running every 6h:
+  1. News → Sector Discovery (crawl 40 CafeF/VnExpress headlines → AI identifies 3-5 hot sectors)
+  2. Sector → Stock Discovery (find stocks in hot sectors → light pre-filter)
+  3. Quality Gate (financial disqualifiers + composite score)
+  4. AI Analysis with sector context (batch assess + full analysis top 5)
+  5. News Enrichment (per-candidate articles)
+- [x] **News crawler** — CafeF + VnExpress, Vietnamese date parsing, market-wide + per-stock
+- [x] **Market Watch dashboard** — market mood badge, sector overview cards with confidence bars, stock picks grouped by sector, manual refresh with async polling
+- [x] DB persistence — `market_watch_digest` table with sector_analysis, sector_groups, market_mood, pipeline_type
 
-### Phase 4 — AI Deep Research (On-Demand Actions)
-- [ ] **"Deep Research" button** — full multi-year report (Claude Opus)
-- [ ] **"Compare" button** — peer comparison of 2-3 stocks
-- [ ] **"Sector Overview" button** — industry trends
-- [ ] **"Screen with AI" button** — plain text criteria → AI runs filter
+### Phase 4 — AI Deep Research (Partially Done)
+- [x] **"Deep Research" button** — SSE streaming, 4-section report (cơ bản, biểu đồ nến, công ty, tóm tắt), persisted to DB
+- [x] **"Compare" API** — backend exists (`/api/ai/compare`), no frontend UI
+- [ ] **"Sector Overview" button** — not implemented (sector analysis only in Market Watch pipeline)
+- [ ] **"Screen with AI" button** — natural language → AI filters, not implemented
 
-### Phase 5 — Advanced
+### Phase 5 — Advanced (Not Started)
 - [ ] Push notifications and alerts
 - [ ] Dividend tracking and calendar
 - [ ] Trading integration via DNSE/SSI API
 
+### Navigation (Sidebar)
+Dashboard, Stocks, Portfolio, Watchlist, Market Watch, Reports, Settings
+
+### Pages Status
+| Page | Status |
+|------|--------|
+| `/dashboard` | Stats cards + recent AI reports. VN-Index/HNX "Coming soon" |
+| `/stocks` | Search + popular stocks list |
+| `/stocks/[symbol]` | Chart + metrics + Analyze + Deep Research buttons |
+| `/portfolio` | CRUD table + P&L + AI Review button |
+| `/watchlist` | Price table + target tracking |
+| `/market-watch` | Sector cards + grouped stock picks + refresh |
+| `/screener` | Filter form (not in nav) |
+| `/reports` | Stub — shows empty state only |
+
 ## AI Architecture (Action-Driven)
 
 ```
-User clicks "Analyze Stock" on VCB page
-        │
-        ▼
-┌─── Backend Workflow ─────────────────────────┐
-│  1. get_price_history("VCB")    ← vnstock    │
-│  2. get_financials("VCB")       ← vnstock    │
-│  3. crawl_news("VCB")           ← CafeF      │
-│  4. Claude Sonnet analyzes all data           │
-└────────────────┬─────────────────────────────┘
-                 ▼
-┌─── Output (UI card) ────────────────────────┐
-│  Action: BUY / WATCH / AVOID                │
-│  Summary + Key metrics + Risk level          │
-│  Entry price / Stop-loss / Target            │
-└──────────────────────────────────────────────┘
+┌─── On-Demand Actions ──────────────────────────────┐
+│                                                     │
+│  "Analyze Stock" → price + ratios + news → Sonnet  │
+│  "Deep Research" → 4-section SSE stream → Sonnet   │
+│  "AI Review"     → portfolio holdings → Sonnet     │
+│  "Compare"       → 2-3 stocks side-by-side (API)   │
+│                                                     │
+└─────────────────────────────────────────────────────┘
+
+┌─── Market Watch Pipeline (every 6h) ───────────────┐
+│                                                     │
+│  Stage 1: crawl_market_news(40) → Sonnet →         │
+│           identify 3-5 hot sectors                  │
+│  Stage 2: get_stocks_by_industry() → pre-filter    │
+│  Stage 3: quality_gate (income + balance check)    │
+│  Stage 4: batch_assess_with_sectors → Sonnet →     │
+│           full_analysis top 5 → Sonnet             │
+│  Stage 5: crawl_news per candidate                 │
+│                                                     │
+│  Output → market_watch_digest DB → frontend        │
+└─────────────────────────────────────────────────────┘
 ```
 
-## Project Structure (Extended)
+## Project Structure
 
 ```
 ai-finance/
 ├── CLAUDE.md
 ├── apps/
-│   ├── nextjs/                     # Next.js web app (CleanStack)
+│   ├── nextjs/                        # Next.js web app (CleanStack)
 │   │   ├── src/
-│   │   │   ├── domain/             # Stock, Portfolio, Watchlist, MarketWatch aggregates
+│   │   │   ├── domain/                # Portfolio, Watchlist aggregates
 │   │   │   ├── application/
-│   │   │   │   ├── use-cases/      # AnalyzeStock, DeepResearch, DailyPnL, etc.
-│   │   │   │   └── ports/          # IStockProvider, IAIProvider, INewsProvider
+│   │   │   │   ├── use-cases/         # Portfolio CRUD, Watchlist CRUD
+│   │   │   │   ├── ports/             # IPortfolioRepository, IWatchlistRepository
+│   │   │   │   └── dto/               # Zod schemas
 │   │   │   └── adapters/
-│   │   │       ├── services/
-│   │   │       │   ├── stock/      # vnstock Python service client
-│   │   │       │   ├── ai/         # Claude API client (action workflows)
-│   │   │       │   └── news/       # News crawler client
-│   │   │       └── ...
+│   │   │       ├── repositories/      # Drizzle implementations
+│   │   │       ├── mappers/           # Domain ↔ DB mappers
+│   │   │       └── guards/            # Auth guards
+│   │   ├── common/di/                 # DI container + modules
+│   │   ├── lib/stock-service.ts       # Python service HTTP client
 │   │   └── app/
 │   │       ├── (protected)/
-│   │       │   ├── dashboard/
-│   │       │   ├── stock/[symbol]/
-│   │       │   ├── portfolio/
-│   │       │   ├── watchlist/
-│   │       │   ├── market-watch/
-│   │       │   └── research/
+│   │       │   ├── dashboard/         # Stats + recent reports
+│   │       │   ├── stocks/            # Search + [symbol] detail
+│   │       │   ├── portfolio/         # CRUD + AI review
+│   │       │   ├── watchlist/         # Price monitoring
+│   │       │   ├── market-watch/      # Sector-first digest
+│   │       │   ├── screener/          # Filter form
+│   │       │   └── reports/           # Stub
 │   │       └── api/
+│   │           ├── stocks/            # Proxy to Python service
+│   │           ├── portfolio/         # CRUD + AI review
+│   │           ├── watchlist/         # CRUD
+│   │           └── dashboard/         # Stats query
 │   │
-│   └── stock-service/              # Python microservice (FastAPI)
-│       ├── main.py
+│   └── stock-service/                 # Python FastAPI microservice
+│       ├── main.py                    # CORS from env, scheduler lifespan
 │       ├── routers/
-│       │   ├── price.py
-│       │   ├── financial.py
-│       │   ├── screening.py
-│       │   ├── listing.py
-│       │   └── ai_actions.py
+│       │   ├── price.py               # /api/price/history, /api/price/board
+│       │   ├── financial.py           # /api/financial/{symbol}/ratios, income, balance, cashflow
+│       │   ├── screening.py           # /api/screening/scan
+│       │   ├── listing.py             # /api/listing/symbols, /api/listing/search
+│       │   ├── ai_actions.py          # /api/ai/analyze, deep-research, compare, portfolio-review
+│       │   └── market_watch.py        # /api/market-watch/digest, status, latest
 │       ├── services/
-│       │   ├── vnstock_client.py
-│       │   ├── news_crawler.py
-│       │   ├── ai_workflows.py
-│       │   └── claude_client.py
+│       │   ├── vnstock_client.py      # VCI data: price, ratios, financials, industries
+│       │   ├── news_crawler.py        # CafeF + VnExpress scraper
+│       │   ├── ai_workflows.py        # All Claude prompts + workflow methods
+│       │   ├── claude_client.py       # Anthropic API wrapper (Sonnet/Opus)
+│       │   └── cache.py               # Redis TTL cache
 │       ├── jobs/
-│       │   ├── scheduler.py
-│       │   ├── daily_scan.py
-│       │   ├── news_fetch.py
-│       │   ├── deep_research.py
-│       │   └── digest.py
+│       │   ├── scheduler.py           # APScheduler, 6h interval, VN timezone
+│       │   ├── daily_scan.py          # Stage 2: sector → stock discovery
+│       │   ├── quality_gate.py        # Stage 3: financial disqualifiers + score
+│       │   ├── deep_research.py       # Stage 4: AI batch assess + full analysis
+│       │   ├── news_fetch.py          # Stage 5: per-candidate news
+│       │   └── digest.py              # Orchestrator: 5-stage pipeline
 │       └── requirements.txt
 │
 ├── packages/
-│   ├── ddd-kit/                    # DDD primitives (from CleanStack)
-│   ├── drizzle/                    # DB schema
-│   └── ui/                         # Shared UI components
+│   ├── ddd-kit/                       # DDD primitives (Result, Option, Entity)
+│   ├── drizzle/                       # DB schema (auth, stock, portfolio, watchlist)
+│   └── ui/                            # Shared shadcn/ui components
 │
-├── .claude/
-│   ├── agents/                     # Custom AI agents
-│   │   ├── stock-data-expert.md
-│   │   └── ai-workflow-builder.md
-│   ├── skills/                     # Custom skills (CleanStack + AI Finance)
-│   │   ├── analyze-stock.md
-│   │   └── gen-workflow.md
-│   └── rules/                      # Project rules
-│       ├── python-service.md
-│       └── ai-workflows.md
-│
-└── docker-compose.yaml
+└── docker-compose.yaml                # Local dev: PostgreSQL only
 ```
 
 ## Environment Variables
 
+**Next.js** (`.env` at root):
 ```env
-# Database
-DATABASE_URL=postgresql://...
+DATABASE_URL=postgresql://...           # Supabase or local PostgreSQL
+NEXT_PUBLIC_APP_URL=http://localhost:3000
+BETTER_AUTH_SECRET=                      # openssl rand -base64 32
+BETTER_AUTH_URL=http://localhost:3000
+STOCK_SERVICE_URL=http://localhost:8000  # Python service URL
+```
 
-# Supabase (provide later)
-SUPABASE_URL=
-SUPABASE_ANON_KEY=
-
-# Claude API
-ANTHROPIC_API_KEY=
-
-# Python stock service
-STOCK_SERVICE_URL=http://localhost:8000
-
-# Redis
+**Python stock service** (`apps/stock-service/.env`):
+```env
+ANTHROPIC_API_KEY=sk-ant-...            # Claude API key
 REDIS_URL=redis://localhost:6379
+CORS_ORIGINS=http://localhost:3000      # Comma-separated for multiple origins
+APP_URL=http://localhost:3000           # Next.js URL for DB save callback
 ```
 
 ---

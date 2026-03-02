@@ -60,6 +60,22 @@ interface SectorSummary {
   stock_count: number;
 }
 
+interface PipelineStageInfo {
+  stage: number;
+  name: string;
+  result: string;
+  started_at: number | null;
+  completed_at: number | null;
+  duration: number | null;
+}
+
+interface PipelineProgress {
+  current_stage: number;
+  current_stage_name: string;
+  stage_detail: string;
+  stages: PipelineStageInfo[];
+}
+
 interface DigestResponse {
   date: string;
   generated_at: string;
@@ -377,12 +393,96 @@ function SectorCard({ sector }: { sector: SectorSummary }) {
   );
 }
 
+const PIPELINE_STAGES = [
+  { stage: 1, name: "Phân tích tin tức" },
+  { stage: 2, name: "Lọc cổ phiếu theo ngành" },
+  { stage: 3, name: "Kiểm tra tài chính" },
+  { stage: 4, name: "AI phân tích" },
+  { stage: 5, name: "Thu thập tin tức" },
+];
+
+function PipelineStepper({ progress }: { progress: PipelineProgress }) {
+  return (
+    <div className="rounded-lg bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 p-4">
+      <div className="flex items-center gap-2 mb-3">
+        <Loader2 className="h-4 w-4 animate-spin text-blue-500" />
+        <span className="text-sm font-medium text-blue-700 dark:text-blue-300">
+          Đang chạy AI pipeline...
+        </span>
+      </div>
+      <div className="space-y-2">
+        {PIPELINE_STAGES.map(({ stage, name }) => {
+          const completed = progress.stages.find(
+            (s) => s.stage === stage && s.completed_at != null,
+          );
+          const isRunning = progress.current_stage === stage && !completed;
+          const isPending = !completed && !isRunning;
+
+          return (
+            <div
+              key={stage}
+              className={`flex items-start gap-2.5 text-sm ${
+                isPending ? "text-zinc-400 dark:text-zinc-600" : ""
+              }`}
+            >
+              {/* Icon */}
+              <div className="mt-0.5 shrink-0">
+                {completed ? (
+                  <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+                ) : isRunning ? (
+                  <Loader2 className="h-4 w-4 animate-spin text-blue-500" />
+                ) : (
+                  <div className="h-4 w-4 rounded-full border-2 border-zinc-300 dark:border-zinc-600" />
+                )}
+              </div>
+
+              {/* Content */}
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <span
+                    className={`font-medium ${
+                      completed
+                        ? "text-zinc-700 dark:text-zinc-300"
+                        : isRunning
+                          ? "text-blue-700 dark:text-blue-300"
+                          : ""
+                    }`}
+                  >
+                    {stage}. {name}
+                  </span>
+                  {completed?.duration != null && (
+                    <span className="text-xs text-zinc-400">
+                      ({completed.duration}s)
+                    </span>
+                  )}
+                </div>
+                {completed?.result && (
+                  <p className="text-xs text-emerald-600 dark:text-emerald-400 mt-0.5 truncate">
+                    {completed.result}
+                  </p>
+                )}
+                {isRunning && progress.stage_detail && (
+                  <p className="text-xs text-blue-500 dark:text-blue-400 mt-0.5 truncate">
+                    {progress.stage_detail}
+                  </p>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 export default function MarketWatchPage() {
   const [digest, setDigest] = useState<DigestResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshError, setRefreshError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [pipelineProgress, setPipelineProgress] =
+    useState<PipelineProgress | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pollStartRef = useRef<number>(0);
 
@@ -430,8 +530,18 @@ export default function MarketWatchPage() {
         if (!res.ok) return;
         const data = await res.json();
 
+        if (data.pipeline_status === "running") {
+          setPipelineProgress({
+            current_stage: data.current_stage ?? 0,
+            current_stage_name: data.current_stage_name ?? "",
+            stage_detail: data.stage_detail ?? "",
+            stages: data.stages ?? [],
+          });
+        }
+
         if (data.pipeline_status === "completed" && data.top_picks?.length) {
           stopPolling();
+          setPipelineProgress(null);
           setDigest(data as DigestResponse);
           setRefreshing(false);
           setRefreshError(null);
@@ -440,6 +550,7 @@ export default function MarketWatchPage() {
 
         if (data.pipeline_status === "error") {
           stopPolling();
+          setPipelineProgress(null);
           setRefreshing(false);
           setRefreshError(data.error || "Pipeline gặp lỗi");
           return;
@@ -451,6 +562,7 @@ export default function MarketWatchPage() {
           data.generated_at !== currentGeneratedAt
         ) {
           stopPolling();
+          setPipelineProgress(null);
           await fetchDigest();
           setRefreshing(false);
           setRefreshError(null);
@@ -541,15 +653,17 @@ export default function MarketWatchPage() {
         </div>
       )}
 
-      {refreshing && (
-        <div className="rounded-lg bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 p-3 flex items-center gap-2">
-          <Loader2 className="h-4 w-4 animate-spin text-blue-500" />
-          <span className="text-sm text-blue-600 dark:text-blue-400">
-            Đang chạy AI pipeline (5 giai đoạn: tin tức → ngành → lọc → AI → tin
-            tức)... Có thể mất 3-10 phút.
-          </span>
-        </div>
-      )}
+      {refreshing &&
+        (pipelineProgress && pipelineProgress.current_stage > 0 ? (
+          <PipelineStepper progress={pipelineProgress} />
+        ) : (
+          <div className="rounded-lg bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 p-3 flex items-center gap-2">
+            <Loader2 className="h-4 w-4 animate-spin text-blue-500" />
+            <span className="text-sm text-blue-600 dark:text-blue-400">
+              Đang khởi tạo AI pipeline...
+            </span>
+          </div>
+        ))}
 
       {refreshError && (
         <div className="rounded-lg bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 p-3 flex items-center gap-2">

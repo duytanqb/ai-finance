@@ -1,5 +1,6 @@
 """News crawler for Vietnam financial news sources."""
 
+import asyncio
 import re
 from datetime import datetime, timedelta
 
@@ -10,7 +11,7 @@ MAX_AGE_DAYS = 30
 
 
 def _parse_vn_date(text: str) -> datetime | None:
-    """Parse Vietnamese date strings from CafeF/VnExpress.
+    """Parse Vietnamese date strings from CafeF/VnExpress/Vietstock.
 
     Common formats:
     - "27/02/2026 10:30"  (DD/MM/YYYY HH:MM)
@@ -73,6 +74,18 @@ def _is_recent(published_at: str, max_days: int = MAX_AGE_DAYS) -> bool:
     return parsed >= cutoff
 
 
+def _deduplicate(articles: list[dict]) -> list[dict]:
+    """Remove duplicate articles by title similarity."""
+    seen_titles: set[str] = set()
+    unique = []
+    for article in articles:
+        title_key = article["title"].strip().lower()[:60]
+        if title_key not in seen_titles:
+            seen_titles.add(title_key)
+            unique.append(article)
+    return unique
+
+
 class NewsCrawler:
     """Crawl and parse financial news from Vietnamese sources."""
 
@@ -83,10 +96,44 @@ class NewsCrawler:
         }
 
     async def crawl_news(self, symbol: str, limit: int = 10) -> list[dict]:
-        """Fetch latest news for a stock symbol from CafeF + VnExpress.
+        """Fetch latest news for a stock symbol from CafeF + VnExpress + Vietstock.
 
-        Only returns articles published within the last 30 days.
+        All 3 sources are fetched in parallel. Only returns articles
+        published within the last 30 days.
         """
+        results = await asyncio.gather(
+            self._crawl_cafef_symbol(symbol, limit),
+            self._crawl_vnexpress_symbol(symbol, limit),
+            self._crawl_vietstock_symbol(symbol, limit),
+            return_exceptions=True,
+        )
+
+        all_articles: list[dict] = []
+        for r in results:
+            if isinstance(r, list):
+                all_articles.extend(r)
+
+        return _deduplicate(all_articles)[:limit]
+
+    async def crawl_market_news(self, limit: int = 20) -> list[dict]:
+        """Fetch general market news from CafeF + VnExpress + Vietstock in parallel."""
+        results = await asyncio.gather(
+            self._crawl_cafef_market(limit),
+            self._crawl_vnexpress_market(limit),
+            self._crawl_vietstock_market(limit),
+            return_exceptions=True,
+        )
+
+        all_articles: list[dict] = []
+        for r in results:
+            if isinstance(r, list):
+                all_articles.extend(r)
+
+        return _deduplicate(all_articles)[:limit]
+
+    # ── CafeF ──────────────────────────────────────────────────
+
+    async def _crawl_cafef_symbol(self, symbol: str, limit: int) -> list[dict]:
         results = []
         try:
             async with httpx.AsyncClient(
@@ -118,62 +165,18 @@ class NewsCrawler:
                     if not _is_recent(published_at):
                         continue
 
-                    results.append(
-                        {
-                            "title": title,
-                            "url": href,
-                            "source": "CafeF",
-                            "published_at": published_at,
-                            "snippet": snippet[:300],
-                        }
-                    )
+                    results.append({
+                        "title": title,
+                        "url": href,
+                        "source": "CafeF",
+                        "published_at": published_at,
+                        "snippet": snippet[:300],
+                    })
         except Exception as e:
             print(f"[NewsCrawler] Error crawling CafeF for {symbol}: {e}")
+        return results
 
-        try:
-            async with httpx.AsyncClient(
-                timeout=self.timeout, headers=self.headers
-            ) as client:
-                url = f"https://timkiem.vnexpress.net/?q={symbol}&cate_code=kinhdoanh"
-                resp = await client.get(url)
-                resp.raise_for_status()
-
-                soup = BeautifulSoup(resp.text, "html.parser")
-                articles = soup.select("article.item-news, .search-item")[:limit * 2]
-
-                for article in articles:
-                    title_el = article.select_one("h3 a, h2 a, .title-news a")
-                    if not title_el:
-                        continue
-
-                    title = title_el.get_text(strip=True)
-                    href = title_el.get("href", "")
-
-                    snippet_el = article.select_one("p.description, .description")
-                    snippet = snippet_el.get_text(strip=True) if snippet_el else ""
-
-                    date_el = article.select_one(".time-count, .date")
-                    published_at = date_el.get_text(strip=True) if date_el else ""
-
-                    if not _is_recent(published_at):
-                        continue
-
-                    results.append(
-                        {
-                            "title": title,
-                            "url": href,
-                            "source": "VnExpress",
-                            "published_at": published_at,
-                            "snippet": snippet[:300],
-                        }
-                    )
-        except Exception as e:
-            print(f"[NewsCrawler] Error crawling VnExpress for {symbol}: {e}")
-
-        return results[:limit]
-
-    async def crawl_market_news(self, limit: int = 20) -> list[dict]:
-        """Fetch general market news from CafeF. Only recent articles."""
+    async def _crawl_cafef_market(self, limit: int) -> list[dict]:
         results = []
         try:
             async with httpx.AsyncClient(
@@ -205,16 +208,193 @@ class NewsCrawler:
                     if not _is_recent(published_at):
                         continue
 
-                    results.append(
-                        {
-                            "title": title,
-                            "url": href,
-                            "source": "CafeF",
-                            "published_at": published_at,
-                            "snippet": snippet[:300],
-                        }
-                    )
+                    results.append({
+                        "title": title,
+                        "url": href,
+                        "source": "CafeF",
+                        "published_at": published_at,
+                        "snippet": snippet[:300],
+                    })
         except Exception as e:
-            print(f"[NewsCrawler] Error crawling market news: {e}")
+            print(f"[NewsCrawler] Error crawling CafeF market news: {e}")
+        return results
 
-        return results[:limit]
+    # ── VnExpress ──────────────────────────────────────────────
+
+    async def _crawl_vnexpress_symbol(self, symbol: str, limit: int) -> list[dict]:
+        results = []
+        try:
+            async with httpx.AsyncClient(
+                timeout=self.timeout, headers=self.headers
+            ) as client:
+                url = f"https://timkiem.vnexpress.net/?q={symbol}&cate_code=kinhdoanh"
+                resp = await client.get(url)
+                resp.raise_for_status()
+
+                soup = BeautifulSoup(resp.text, "html.parser")
+                articles = soup.select("article.item-news, .search-item")[:limit * 2]
+
+                for article in articles:
+                    title_el = article.select_one("h3 a, h2 a, .title-news a")
+                    if not title_el:
+                        continue
+
+                    title = title_el.get_text(strip=True)
+                    href = title_el.get("href", "")
+
+                    snippet_el = article.select_one("p.description, .description")
+                    snippet = snippet_el.get_text(strip=True) if snippet_el else ""
+
+                    date_el = article.select_one(".time-count, .date")
+                    published_at = date_el.get_text(strip=True) if date_el else ""
+
+                    if not _is_recent(published_at):
+                        continue
+
+                    results.append({
+                        "title": title,
+                        "url": href,
+                        "source": "VnExpress",
+                        "published_at": published_at,
+                        "snippet": snippet[:300],
+                    })
+        except Exception as e:
+            print(f"[NewsCrawler] Error crawling VnExpress for {symbol}: {e}")
+        return results
+
+    async def _crawl_vnexpress_market(self, limit: int) -> list[dict]:
+        results = []
+        try:
+            async with httpx.AsyncClient(
+                timeout=self.timeout, headers=self.headers
+            ) as client:
+                url = "https://vnexpress.net/kinh-doanh/chung-khoan"
+                resp = await client.get(url)
+                resp.raise_for_status()
+
+                soup = BeautifulSoup(resp.text, "html.parser")
+                articles = soup.select("article.item-news, .item-news-common")[:limit * 2]
+
+                for article in articles:
+                    title_el = article.select_one("h3 a, h2 a, .title-news a")
+                    if not title_el:
+                        continue
+
+                    title = title_el.get_text(strip=True)
+                    href = title_el.get("href", "")
+
+                    snippet_el = article.select_one("p.description, .description")
+                    snippet = snippet_el.get_text(strip=True) if snippet_el else ""
+
+                    date_el = article.select_one(".time-count, .date")
+                    published_at = date_el.get_text(strip=True) if date_el else ""
+
+                    if not _is_recent(published_at):
+                        continue
+
+                    results.append({
+                        "title": title,
+                        "url": href,
+                        "source": "VnExpress",
+                        "published_at": published_at,
+                        "snippet": snippet[:300],
+                    })
+        except Exception as e:
+            print(f"[NewsCrawler] Error crawling VnExpress market news: {e}")
+        return results
+
+    # ── Vietstock ──────────────────────────────────────────────
+
+    async def _crawl_vietstock_symbol(self, symbol: str, limit: int) -> list[dict]:
+        results = []
+        try:
+            async with httpx.AsyncClient(
+                timeout=self.timeout, headers=self.headers
+            ) as client:
+                url = f"https://vietstock.vn/tim-kiem.htm?q={symbol}"
+                resp = await client.get(url)
+                resp.raise_for_status()
+
+                soup = BeautifulSoup(resp.text, "html.parser")
+                articles = soup.select(".search-item, .news-item, article")[:limit * 2]
+
+                for article in articles:
+                    title_el = article.select_one("a[title], h3 a, h2 a, .title a")
+                    if not title_el:
+                        continue
+
+                    title = title_el.get_text(strip=True)
+                    if not title:
+                        continue
+                    href = title_el.get("href", "")
+                    if href and not href.startswith("http"):
+                        href = f"https://vietstock.vn{href}"
+
+                    snippet_el = article.select_one(".sapo, .description, p")
+                    snippet = snippet_el.get_text(strip=True) if snippet_el else ""
+
+                    date_el = article.select_one(".date, .time, time")
+                    published_at = ""
+                    if date_el:
+                        published_at = date_el.get("datetime", "") or date_el.get_text(strip=True)
+
+                    if published_at and not _is_recent(published_at):
+                        continue
+
+                    results.append({
+                        "title": title,
+                        "url": href,
+                        "source": "Vietstock",
+                        "published_at": published_at,
+                        "snippet": snippet[:300],
+                    })
+        except Exception as e:
+            print(f"[NewsCrawler] Error crawling Vietstock for {symbol}: {e}")
+        return results
+
+    async def _crawl_vietstock_market(self, limit: int) -> list[dict]:
+        results = []
+        try:
+            async with httpx.AsyncClient(
+                timeout=self.timeout, headers=self.headers
+            ) as client:
+                url = "https://vietstock.vn/chung-khoan.htm"
+                resp = await client.get(url)
+                resp.raise_for_status()
+
+                soup = BeautifulSoup(resp.text, "html.parser")
+                articles = soup.select(".news-item, article, .item-news")[:limit * 2]
+
+                for article in articles:
+                    title_el = article.select_one("a[title], h3 a, h2 a, .title a")
+                    if not title_el:
+                        continue
+
+                    title = title_el.get_text(strip=True)
+                    if not title:
+                        continue
+                    href = title_el.get("href", "")
+                    if href and not href.startswith("http"):
+                        href = f"https://vietstock.vn{href}"
+
+                    snippet_el = article.select_one(".sapo, .description, p")
+                    snippet = snippet_el.get_text(strip=True) if snippet_el else ""
+
+                    date_el = article.select_one(".date, .time, time")
+                    published_at = ""
+                    if date_el:
+                        published_at = date_el.get("datetime", "") or date_el.get_text(strip=True)
+
+                    if published_at and not _is_recent(published_at):
+                        continue
+
+                    results.append({
+                        "title": title,
+                        "url": href,
+                        "source": "Vietstock",
+                        "published_at": published_at,
+                        "snippet": snippet[:300],
+                    })
+        except Exception as e:
+            print(f"[NewsCrawler] Error crawling Vietstock market news: {e}")
+        return results

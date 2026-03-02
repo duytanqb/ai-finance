@@ -68,6 +68,10 @@ export async function GET(request: Request) {
         pipeline_status: status.status,
         started_at: status.started_at,
         error: status.error,
+        current_stage: status.current_stage,
+        current_stage_name: status.current_stage_name,
+        stage_detail: status.stage_detail,
+        stages: status.stages,
       });
     } catch (e) {
       return NextResponse.json({

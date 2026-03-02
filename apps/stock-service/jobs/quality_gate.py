@@ -1,4 +1,6 @@
-"""Stage 2: Financial quality gate — filter out rubble stocks."""
+"""Stage 3: Financial quality gate — filter out rubble stocks."""
+
+from collections.abc import Callable
 
 from services.vnstock_client import VnstockClient
 
@@ -180,8 +182,11 @@ def _summarize_balance(balance: list[dict]) -> dict:
     }
 
 
-async def run_quality_gate(candidates: list[dict]) -> list[dict]:
-    """Stage 2: Deep financial quality filter.
+async def run_quality_gate(
+    candidates: list[dict],
+    on_progress: Callable[[str], None] | None = None,
+) -> list[dict]:
+    """Stage 3: Deep financial quality filter.
 
     Fetches income statement + balance sheet for each candidate.
     Applies hard disqualifiers and computes composite quality score.
@@ -194,8 +199,10 @@ async def run_quality_gate(candidates: list[dict]) -> list[dict]:
     client = VnstockClient()
     qualified = []
 
-    for c in candidates:
+    for ci, c in enumerate(candidates):
         symbol = c["symbol"]
+        if on_progress:
+            on_progress(f"Đang kiểm tra {symbol} ({ci + 1}/{len(candidates)})")
         try:
             ratios = c.get("ratios", c)
 
