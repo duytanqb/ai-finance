@@ -10,16 +10,16 @@ client = DnseClient()
 
 
 class VerifyRequest(BaseModel):
-    username: str
-    password: str
+    api_key: str
+    api_secret: str
 
 
 @router.post("/verify")
 async def verify_credentials(body: VerifyRequest):
     try:
-        valid = await client.verify_credentials(body.username, body.password)
+        valid = await client.verify_api_key(body.api_key, body.api_secret)
         if valid:
             return {"valid": True}
-        return {"valid": False, "error": "Invalid username or password"}
+        return {"valid": False, "error": "Invalid API Key or Secret"}
     except Exception as e:
         return {"valid": False, "error": str(e)}

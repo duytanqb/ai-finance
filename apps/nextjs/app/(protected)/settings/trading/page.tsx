@@ -29,9 +29,9 @@ interface CredentialStatus {
 
 export default function TradingSettingsPage() {
   const [status, setStatus] = useState<CredentialStatus | null>(null);
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
+  const [apiKey, setApiKey] = useState("");
+  const [apiSecret, setApiSecret] = useState("");
+  const [showSecret, setShowSecret] = useState(false);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [removing, setRemoving] = useState(false);
@@ -55,8 +55,11 @@ export default function TradingSettingsPage() {
   }, [fetchStatus]);
 
   const handleSave = async () => {
-    if (!username || !password) {
-      setMessage({ type: "error", text: "Vui lòng nhập username và password" });
+    if (!apiKey || !apiSecret) {
+      setMessage({
+        type: "error",
+        text: "Vui lòng nhập API Key và API Secret",
+      });
       return;
     }
 
@@ -66,22 +69,29 @@ export default function TradingSettingsPage() {
       const res = await fetch("/api/settings/credentials", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, password }),
+        body: JSON.stringify({ apiKey, apiSecret }),
       });
       if (res.ok) {
         setMessage({ type: "success", text: "Đã lưu thông tin DNSE" });
-        setUsername("");
-        setPassword("");
+        setApiKey("");
+        setApiSecret("");
         fetchStatus();
       } else {
-        const data = await res.json();
-        setMessage({
-          type: "error",
-          text: data.error || "Lưu thất bại",
-        });
+        const text = await res.text();
+        let errorMsg = "Lưu thất bại";
+        try {
+          const data = JSON.parse(text);
+          errorMsg = data.error || errorMsg;
+        } catch {
+          errorMsg = `HTTP ${res.status}: ${text.slice(0, 200)}`;
+        }
+        setMessage({ type: "error", text: errorMsg });
       }
-    } catch {
-      setMessage({ type: "error", text: "Lỗi kết nối" });
+    } catch (err) {
+      setMessage({
+        type: "error",
+        text: err instanceof Error ? err.message : "Lỗi kết nối",
+      });
     } finally {
       setSaving(false);
     }
@@ -158,37 +168,37 @@ export default function TradingSettingsPage() {
 
           <div className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="dnse-username" className="font-bold">
-                Username
+              <Label htmlFor="dnse-api-key" className="font-bold">
+                API Key
               </Label>
               <Input
-                id="dnse-username"
-                placeholder="Nhập username DNSE"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                className="border-3"
+                id="dnse-api-key"
+                placeholder="Nhập API Key DNSE"
+                value={apiKey}
+                onChange={(e) => setApiKey(e.target.value)}
+                className="border-3 font-mono"
               />
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="dnse-password" className="font-bold">
-                Password
+              <Label htmlFor="dnse-api-secret" className="font-bold">
+                API Secret
               </Label>
               <div className="relative">
                 <Input
-                  id="dnse-password"
-                  type={showPassword ? "text" : "password"}
-                  placeholder="Nhập password DNSE"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="border-3 pr-10"
+                  id="dnse-api-secret"
+                  type={showSecret ? "text" : "password"}
+                  placeholder="Nhập API Secret DNSE"
+                  value={apiSecret}
+                  onChange={(e) => setApiSecret(e.target.value)}
+                  className="border-3 pr-10 font-mono"
                 />
                 <button
                   type="button"
-                  onClick={() => setShowPassword(!showPassword)}
+                  onClick={() => setShowSecret(!showSecret)}
                   className="absolute top-1/2 right-3 -translate-y-1/2 text-muted-foreground hover:text-foreground"
                 >
-                  {showPassword ? (
+                  {showSecret ? (
                     <EyeOff className="h-4 w-4" />
                   ) : (
                     <Eye className="h-4 w-4" />
@@ -213,7 +223,7 @@ export default function TradingSettingsPage() {
           <div className="flex flex-wrap gap-3">
             <Button
               onClick={handleSave}
-              disabled={saving || !username || !password}
+              disabled={saving || !apiKey || !apiSecret}
               className="border-3 border-black bg-black font-bold text-white shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] hover:bg-black/90 dark:border-white dark:bg-white dark:text-black dark:shadow-[3px_3px_0px_0px_rgba(255,255,255,1)]"
             >
               {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
@@ -255,8 +265,8 @@ export default function TradingSettingsPage() {
 
           <div className="border-t-3 pt-4">
             <p className="text-xs text-muted-foreground">
-              Thông tin đăng nhập được mã hóa AES-256-GCM trước khi lưu vào
-              database. Chỉ dùng để kết nối API giao dịch DNSE.
+              API Key và Secret được mã hóa AES-256-GCM trước khi lưu vào
+              database. Dùng để xác thực với DNSE OpenAPI.
             </p>
           </div>
         </CardContent>

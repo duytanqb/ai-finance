@@ -1,5 +1,7 @@
 """DNSE Lightspeed API client for chart data and trading."""
 
+import hashlib
+import hmac
 import time
 
 import httpx
@@ -7,6 +9,7 @@ import httpx
 from services.cache import TTL_FINANCIAL, TTL_PRICE, cache
 
 BASE_URL = "https://services.entrade.com.vn"
+OPENAPI_URL = "https://openapi.dnse.com.vn"
 
 
 class DnseClient:
@@ -111,34 +114,35 @@ class DnseClient:
         cache.set(cache_key, candles, ttl)
         return candles
 
-    async def authenticate(self, username: str, password: str) -> dict:
-        """Authenticate with DNSE and get JWT token.
+    @staticmethod
+    def _sign(api_secret: str, message: str) -> str:
+        """Create HMAC-SHA256 signature for DNSE OpenAPI."""
+        return hmac.new(
+            api_secret.encode("utf-8"),
+            message.encode("utf-8"),
+            hashlib.sha256,
+        ).hexdigest()
 
-        Args:
-            username: DNSE username.
-            password: DNSE password.
+    async def verify_api_key(self, api_key: str, api_secret: str) -> bool:
+        """Test if DNSE API Key and Secret are valid.
 
-        Returns:
-            Auth response with token.
-        """
-        url = f"{BASE_URL}/dnse-user-service/api/auth"
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            resp = await client.post(
-                url,
-                json={"username": username, "password": password},
-            )
-            resp.raise_for_status()
-            return resp.json()
-
-    async def verify_credentials(self, username: str, password: str) -> bool:
-        """Test if DNSE credentials are valid.
+        Calls a lightweight OpenAPI endpoint to verify credentials.
 
         Returns:
-            True if authentication succeeds.
+            True if the API key is accepted.
         """
         try:
-            result = await self.authenticate(username, password)
-            return bool(result.get("token"))
+            ts = str(int(time.time() * 1000))
+            signature = self._sign(api_secret, ts)
+            headers = {
+                "X-API-Key": api_key,
+                "X-Signature": signature,
+                "X-Timestamp": ts,
+            }
+            url = f"{OPENAPI_URL}/api/account"
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                resp = await client.get(url, headers=headers)
+                return resp.status_code == 200
         except httpx.HTTPStatusError:
             return False
         except Exception:

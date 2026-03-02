@@ -33,8 +33,8 @@ export async function POST() {
   try {
     const creds = JSON.parse(decrypt(row.encryptedCredentials));
     const result = (await stockServicePost("/api/dnse/verify", {
-      username: creds.username,
-      password: creds.password,
+      api_key: creds.apiKey,
+      api_secret: creds.apiSecret,
     })) as { valid: boolean; error?: string };
 
     if (result.valid) {

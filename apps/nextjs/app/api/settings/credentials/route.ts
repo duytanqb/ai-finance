@@ -46,16 +46,16 @@ export async function PUT(request: Request) {
   }
 
   const body = await request.json();
-  const { username, password } = body;
+  const { apiKey, apiSecret } = body;
 
-  if (!username || !password) {
+  if (!apiKey || !apiSecret) {
     return NextResponse.json(
-      { error: "Username and password are required" },
+      { error: "API Key and API Secret are required" },
       { status: 400 },
     );
   }
 
-  const encrypted = encrypt(JSON.stringify({ username, password }));
+  const encrypted = encrypt(JSON.stringify({ apiKey, apiSecret }));
   const userId = guard.session.user.id;
 
   const [existing] = await db
