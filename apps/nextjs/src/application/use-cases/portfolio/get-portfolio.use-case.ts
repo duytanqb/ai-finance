@@ -34,6 +34,8 @@ export class GetPortfolioUseCase
       quantity: holding.get("quantity").value,
       averagePrice: holding.get("averagePrice").value,
       horizon: holding.get("horizon").value,
+      stopLoss: holding.get("stopLoss"),
+      takeProfit: holding.get("takeProfit"),
       createdAt: holding.get("createdAt"),
       updatedAt: holding._props.updatedAt,
     };

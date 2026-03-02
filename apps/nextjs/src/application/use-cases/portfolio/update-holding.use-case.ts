@@ -57,6 +57,14 @@ export class UpdateHoldingUseCase
       if (updateResult.isFailure) return Result.fail(updateResult.getError());
     }
 
+    if (input.stopLoss !== undefined) {
+      holding.updateStopLoss(input.stopLoss ?? null);
+    }
+
+    if (input.takeProfit !== undefined) {
+      holding.updateTakeProfit(input.takeProfit ?? null);
+    }
+
     const saveResult = await this.portfolioRepo.update(holding);
     if (saveResult.isFailure) return Result.fail(saveResult.getError());
 
@@ -95,6 +103,8 @@ export class UpdateHoldingUseCase
       quantity: holding.get("quantity").value,
       averagePrice: holding.get("averagePrice").value,
       horizon: holding.get("horizon").value,
+      stopLoss: holding.get("stopLoss"),
+      takeProfit: holding.get("takeProfit"),
       updatedAt: holding._props.updatedAt,
     };
   }

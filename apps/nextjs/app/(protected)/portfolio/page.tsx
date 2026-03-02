@@ -21,10 +21,13 @@ interface Holding {
   quantity: number;
   averagePrice: number;
   horizon: string;
+  stopLoss?: number | null;
+  takeProfit?: number | null;
   createdAt: string;
   currentPrice?: number;
   change?: number;
   changePercent?: number;
+  dividendYield?: number;
 }
 
 interface AIHoldingReview {
@@ -32,6 +35,8 @@ interface AIHoldingReview {
   action: string;
   reasoning: string;
   urgency: string;
+  suggested_stop_loss?: number | null;
+  suggested_take_profit?: number | null;
 }
 
 interface AIReviewResult {
@@ -86,6 +91,8 @@ export default function PortfolioPage() {
     quantity: "",
     averagePrice: "",
     horizon: "",
+    stopLoss: "",
+    takeProfit: "",
   });
   const [saving, setSaving] = useState(false);
 
@@ -96,6 +103,8 @@ export default function PortfolioPage() {
   const [formQuantity, setFormQuantity] = useState("");
   const [formAvgPrice, setFormAvgPrice] = useState("");
   const [formHorizon, setFormHorizon] = useState("medium-term");
+  const [formStopLoss, setFormStopLoss] = useState("");
+  const [formTakeProfit, setFormTakeProfit] = useState("");
 
   const fetchHoldings = useCallback(async () => {
     try {
@@ -109,6 +118,7 @@ export default function PortfolioPage() {
         string,
         { price: number; change: number; changePercent: number }
       > = {};
+      const dividendMap: Record<string, number> = {};
 
       await Promise.allSettled(
         symbols.map(async (sym) => {
@@ -136,11 +146,33 @@ export default function PortfolioPage() {
         }),
       );
 
+      await Promise.allSettled(
+        symbols.map(async (sym) => {
+          try {
+            const ratioRes = await fetch(`/api/stocks/${sym}/financials`);
+            if (ratioRes.ok) {
+              const ratioData = await ratioRes.json();
+              const ratios = Array.isArray(ratioData?.data)
+                ? ratioData.data[0]
+                : ratioData?.data;
+              const dy =
+                ratios?.dividend_yield ?? ratios?.dividendYield ?? null;
+              if (dy != null && dy > 0) {
+                dividendMap[sym] = dy;
+              }
+            }
+          } catch {
+            // skip
+          }
+        }),
+      );
+
       const enriched = holdingsData.map((h) => ({
         ...h,
         currentPrice: priceMap[h.symbol]?.price,
         change: priceMap[h.symbol]?.change,
         changePercent: priceMap[h.symbol]?.changePercent,
+        dividendYield: dividendMap[h.symbol],
       }));
 
       setHoldings(enriched);
@@ -169,6 +201,8 @@ export default function PortfolioPage() {
           quantity: Number(formQuantity),
           averagePrice: Number(formAvgPrice),
           horizon: formHorizon,
+          stopLoss: formStopLoss ? Number(formStopLoss) : undefined,
+          takeProfit: formTakeProfit ? Number(formTakeProfit) : undefined,
         }),
       });
 
@@ -182,6 +216,8 @@ export default function PortfolioPage() {
       setFormQuantity("");
       setFormAvgPrice("");
       setFormHorizon("medium-term");
+      setFormStopLoss("");
+      setFormTakeProfit("");
       setLoading(true);
       fetchHoldings();
     } catch (err) {
@@ -213,6 +249,8 @@ export default function PortfolioPage() {
       quantity: String(h.quantity),
       averagePrice: String(h.averagePrice),
       horizon: h.horizon,
+      stopLoss: h.stopLoss ? String(h.stopLoss) : "",
+      takeProfit: h.takeProfit ? String(h.takeProfit) : "",
     });
   };
 
@@ -231,6 +269,8 @@ export default function PortfolioPage() {
           quantity: Number(editData.quantity),
           averagePrice: Number(editData.averagePrice),
           horizon: editData.horizon,
+          stopLoss: editData.stopLoss ? Number(editData.stopLoss) : null,
+          takeProfit: editData.takeProfit ? Number(editData.takeProfit) : null,
         }),
       });
       if (!res.ok) {
@@ -260,6 +300,8 @@ export default function PortfolioPage() {
         averagePrice: h.averagePrice,
         currentPrice: h.currentPrice,
         horizon: h.horizon,
+        stopLoss: h.stopLoss ?? null,
+        takeProfit: h.takeProfit ?? null,
         pnlPercent:
           h.currentPrice && h.averagePrice > 0
             ? ((h.currentPrice - h.averagePrice) / h.averagePrice) * 100
@@ -438,6 +480,32 @@ export default function PortfolioPage() {
                 </select>
               </label>
             </div>
+            <div>
+              <label className="block text-xs text-zinc-500 mb-1">
+                Stop Loss
+                <input
+                  type="number"
+                  value={formStopLoss}
+                  onChange={(e) => setFormStopLoss(e.target.value)}
+                  placeholder="80000"
+                  min="0"
+                  className="mt-1 block w-28 px-3 py-2 text-sm rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100"
+                />
+              </label>
+            </div>
+            <div>
+              <label className="block text-xs text-zinc-500 mb-1">
+                Take Profit
+                <input
+                  type="number"
+                  value={formTakeProfit}
+                  onChange={(e) => setFormTakeProfit(e.target.value)}
+                  placeholder="100000"
+                  min="0"
+                  className="mt-1 block w-28 px-3 py-2 text-sm rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100"
+                />
+              </label>
+            </div>
             <button
               type="submit"
               disabled={adding}
@@ -523,6 +591,20 @@ export default function PortfolioPage() {
                 <p className="text-xs text-zinc-500 leading-relaxed">
                   {h.reasoning}
                 </p>
+                {(h.suggested_stop_loss || h.suggested_take_profit) && (
+                  <div className="flex gap-3 mt-2">
+                    {h.suggested_stop_loss && (
+                      <span className="text-[10px] font-mono bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 px-1.5 py-0.5 rounded">
+                        SL: {formatVND(h.suggested_stop_loss)}
+                      </span>
+                    )}
+                    {h.suggested_take_profit && (
+                      <span className="text-[10px] font-mono bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 px-1.5 py-0.5 rounded">
+                        TP: {formatVND(h.suggested_take_profit)}
+                      </span>
+                    )}
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -553,6 +635,12 @@ export default function PortfolioPage() {
                   </th>
                   <th className="text-center text-xs font-medium text-zinc-500 uppercase tracking-wide px-5 py-3">
                     Kỳ hạn
+                  </th>
+                  <th className="text-center text-xs font-medium text-zinc-500 uppercase tracking-wide px-5 py-3">
+                    SL / TP
+                  </th>
+                  <th className="text-right text-xs font-medium text-zinc-500 uppercase tracking-wide px-5 py-3">
+                    Cổ tức
                   </th>
                   {aiReview && (
                     <th className="text-center text-xs font-medium text-zinc-500 uppercase tracking-wide px-5 py-3">
@@ -674,6 +762,79 @@ export default function PortfolioPage() {
                             className={`text-xs px-2 py-0.5 rounded-full font-medium ${HORIZON_COLORS[h.horizon] || ""}`}
                           >
                             {HORIZON_LABELS[h.horizon] || h.horizon}
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-5 py-3 text-center">
+                        {isEditing ? (
+                          <div className="flex gap-1">
+                            <input
+                              type="number"
+                              value={editData.stopLoss}
+                              onChange={(e) =>
+                                setEditData({
+                                  ...editData,
+                                  stopLoss: e.target.value,
+                                })
+                              }
+                              placeholder="SL"
+                              className="w-20 px-2 py-1 text-xs text-right rounded border border-zinc-300 dark:border-zinc-600 bg-zinc-50 dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100"
+                            />
+                            <input
+                              type="number"
+                              value={editData.takeProfit}
+                              onChange={(e) =>
+                                setEditData({
+                                  ...editData,
+                                  takeProfit: e.target.value,
+                                })
+                              }
+                              placeholder="TP"
+                              className="w-20 px-2 py-1 text-xs text-right rounded border border-zinc-300 dark:border-zinc-600 bg-zinc-50 dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100"
+                            />
+                          </div>
+                        ) : (
+                          <div className="text-xs font-mono space-y-0.5">
+                            {h.stopLoss ? (
+                              <div
+                                className={
+                                  h.currentPrice &&
+                                  h.currentPrice <= h.stopLoss * 1.03
+                                    ? "text-red-500 font-medium"
+                                    : "text-zinc-400"
+                                }
+                              >
+                                SL: {formatVND(h.stopLoss)}
+                              </div>
+                            ) : null}
+                            {h.takeProfit ? (
+                              <div
+                                className={
+                                  h.currentPrice &&
+                                  h.currentPrice >= h.takeProfit * 0.97
+                                    ? "text-emerald-600 font-medium"
+                                    : "text-zinc-400"
+                                }
+                              >
+                                TP: {formatVND(h.takeProfit)}
+                              </div>
+                            ) : null}
+                            {!h.stopLoss && !h.takeProfit && (
+                              <span className="text-zinc-300 dark:text-zinc-600">
+                                -
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-5 py-3 text-right">
+                        {h.dividendYield ? (
+                          <span className="text-sm font-mono text-emerald-600">
+                            {(h.dividendYield * 100).toFixed(1)}%
+                          </span>
+                        ) : (
+                          <span className="text-sm text-zinc-300 dark:text-zinc-600">
+                            -
                           </span>
                         )}
                       </td>

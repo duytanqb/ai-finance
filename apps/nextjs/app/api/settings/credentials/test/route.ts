@@ -3,7 +3,6 @@ import { userCredential } from "@packages/drizzle/schema/stock";
 import { and, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { authGuard } from "@/adapters/guards/auth.guard";
-import { decrypt } from "@/lib/encryption";
 import { stockServicePost } from "@/lib/stock-service";
 
 export async function POST() {
@@ -31,7 +30,7 @@ export async function POST() {
   }
 
   try {
-    const creds = JSON.parse(decrypt(row.encryptedCredentials));
+    const creds = JSON.parse(row.encryptedCredentials);
     const result = (await stockServicePost("/api/dnse/verify", {
       api_key: creds.apiKey,
       api_secret: creds.apiSecret,

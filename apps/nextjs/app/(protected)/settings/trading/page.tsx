@@ -23,6 +23,7 @@ import { useCallback, useEffect, useState } from "react";
 interface CredentialStatus {
   configured: boolean;
   provider?: string;
+  maskedApiKey?: string;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -151,11 +152,16 @@ export default function TradingSettingsPage() {
         <CardContent className="space-y-6">
           {status?.configured && (
             <div className="flex items-center gap-2 rounded-md border-3 border-green-600 bg-green-50 px-4 py-3 dark:bg-green-950/30">
-              <CheckCircle2 className="h-5 w-5 text-green-600" />
-              <div>
+              <CheckCircle2 className="h-5 w-5 shrink-0 text-green-600" />
+              <div className="min-w-0">
                 <p className="font-bold text-sm text-green-800 dark:text-green-400">
                   Đã kết nối DNSE
                 </p>
+                {status.maskedApiKey && (
+                  <p className="text-xs font-mono text-green-700 dark:text-green-500">
+                    API Key: {status.maskedApiKey}
+                  </p>
+                )}
                 {status.updatedAt && (
                   <p className="text-xs text-green-700 dark:text-green-500">
                     Cập nhật:{" "}
@@ -265,8 +271,8 @@ export default function TradingSettingsPage() {
 
           <div className="border-t-3 pt-4">
             <p className="text-xs text-muted-foreground">
-              API Key và Secret được mã hóa AES-256-GCM trước khi lưu vào
-              database. Dùng để xác thực với DNSE OpenAPI.
+              API Key và Secret được lưu an toàn trong Supabase. Dùng để xác
+              thực với DNSE OpenAPI.
             </p>
           </div>
         </CardContent>

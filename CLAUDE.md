@@ -116,7 +116,6 @@ NEXT_PUBLIC_APP_URL=https://yourdomain.com
 BETTER_AUTH_SECRET=<openssl rand -base64 32>
 BETTER_AUTH_URL=https://yourdomain.com
 STOCK_SERVICE_URL=http://localhost:8000
-CREDENTIAL_ENCRYPTION_KEY=<openssl rand -hex 32>
 EOF
 
 # Python service env
@@ -297,7 +296,7 @@ sudo systemctl status nginx
 
 ### Phase 5 — DNSE Trading Integration (In Progress)
 - [x] **DNSE chart data** — free OHLC API for stock + index charts, no auth required
-- [x] **DNSE credential storage** — per-user API Key + Secret, AES-256-GCM encrypted in DB (`user_credential` table)
+- [x] **DNSE credential storage** — per-user API Key + Secret stored in Supabase (`user_credential` table)
 - [x] **Trading settings page** — `/settings/trading` with save/test/remove for DNSE API credentials
 - [x] **DNSE OpenAPI auth** — HMAC-SHA256 signature verification (X-API-Key + X-Signature + X-Timestamp)
 - [ ] Live trading API integration (order placement, account info)
@@ -366,8 +365,7 @@ ai-finance/
 │   │   │       └── guards/            # Auth guards
 │   │   ├── common/di/                 # DI container + modules
 │   │   ├── lib/
-│   │   │   ├── stock-service.ts       # Python service HTTP client
-│   │   │   └── encryption.ts          # AES-256-GCM encrypt/decrypt for credentials
+│   │   │   └── stock-service.ts       # Python service HTTP client
 │   │   └── app/
 │   │       ├── (protected)/
 │   │       │   ├── dashboard/         # Stats + recent reports
@@ -428,7 +426,6 @@ NEXT_PUBLIC_APP_URL=http://localhost:3000
 BETTER_AUTH_SECRET=                      # openssl rand -base64 32
 BETTER_AUTH_URL=http://localhost:3000
 STOCK_SERVICE_URL=http://localhost:8000  # Python service URL
-CREDENTIAL_ENCRYPTION_KEY=              # openssl rand -hex 32 (64-char hex, for DNSE credential encryption)
 ```
 
 **Python stock service** (`apps/stock-service/.env`):

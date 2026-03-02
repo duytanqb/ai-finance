@@ -40,6 +40,8 @@ export function portfolioHoldingToDomain(
         quantity: quantityResult.getValue(),
         averagePrice: averagePriceResult.getValue(),
         horizon: horizonResult.getValue(),
+        stopLoss: record.stopLoss ?? null,
+        takeProfit: record.takeProfit ?? null,
         createdAt: record.createdAt,
         updatedAt: record.updatedAt ?? undefined,
       },
@@ -60,6 +62,8 @@ export function portfolioHoldingToPersistence(
     quantity: holding.get("quantity").value,
     averagePrice: holding.get("averagePrice").value,
     horizon: holding.get("horizon").value,
+    stopLoss: holding.get("stopLoss") ?? null,
+    takeProfit: holding.get("takeProfit") ?? null,
     createdAt: holding.get("createdAt"),
     updatedAt: holding._props.updatedAt ?? null,
   };

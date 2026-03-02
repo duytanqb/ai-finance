@@ -19,6 +19,8 @@ export async function GET() {
   return NextResponse.json({
     holdings: output.holdings.map((h) => ({
       ...h,
+      stopLoss: h.stopLoss ?? null,
+      takeProfit: h.takeProfit ?? null,
       createdAt: h.createdAt.toISOString(),
       updatedAt: h.updatedAt?.toISOString() ?? null,
     })),
@@ -40,6 +42,8 @@ export async function POST(request: Request) {
     quantity: body.quantity,
     averagePrice: body.averagePrice,
     horizon: body.horizon,
+    stopLoss: body.stopLoss,
+    takeProfit: body.takeProfit,
   });
 
   if (result.isFailure) {

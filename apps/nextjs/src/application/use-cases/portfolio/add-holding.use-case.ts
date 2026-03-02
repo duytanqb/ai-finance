@@ -47,6 +47,8 @@ export class AddHoldingUseCase
       quantity: quantityResult.getValue(),
       averagePrice: averagePriceResult.getValue(),
       horizon: horizonResult.getValue(),
+      stopLoss: input.stopLoss ?? null,
+      takeProfit: input.takeProfit ?? null,
     });
 
     const saveResult = await this.portfolioRepo.create(holding);
@@ -82,6 +84,8 @@ export class AddHoldingUseCase
       quantity: holding.get("quantity").value,
       averagePrice: holding.get("averagePrice").value,
       horizon: holding.get("horizon").value,
+      stopLoss: holding.get("stopLoss"),
+      takeProfit: holding.get("takeProfit"),
       createdAt: holding.get("createdAt"),
     };
   }

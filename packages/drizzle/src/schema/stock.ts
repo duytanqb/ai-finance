@@ -1,4 +1,5 @@
 import {
+  boolean,
   index,
   integer,
   jsonb,
@@ -30,6 +31,8 @@ export const portfolioHolding = pgTable(
     quantity: real("quantity").notNull(),
     averagePrice: real("average_price").notNull(),
     horizon: investmentHorizonEnum("horizon").notNull(),
+    stopLoss: real("stop_loss"),
+    takeProfit: real("take_profit"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at"),
   },
@@ -93,6 +96,30 @@ export const userCredential = pgTable(
       table.provider,
     ),
     index("user_credential_user_idx").on(table.userId),
+  ],
+);
+
+export const priceAlert = pgTable(
+  "price_alert",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    holdingId: text("holding_id")
+      .notNull()
+      .references(() => portfolioHolding.id, { onDelete: "cascade" }),
+    symbol: text("symbol").notNull(),
+    alertType: text("alert_type").notNull(),
+    triggerPrice: real("trigger_price").notNull(),
+    currentPrice: real("current_price").notNull(),
+    message: text("message").notNull(),
+    read: boolean("read").notNull().default(false),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => [
+    index("price_alert_user_idx").on(table.userId),
+    index("price_alert_user_read_idx").on(table.userId, table.read),
   ],
 );
 

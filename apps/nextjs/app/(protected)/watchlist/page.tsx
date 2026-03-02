@@ -7,6 +7,7 @@ import {
   Eye,
   Loader2,
   Plus,
+  ShoppingCart,
   Trash2,
   X,
 } from "lucide-react";
@@ -493,6 +494,13 @@ export default function WatchlistPage() {
                       {/* Actions */}
                       <td className="px-3 py-3 text-center">
                         <div className="flex items-center justify-center gap-1">
+                          <Link
+                            href={`/trading?symbol=${item.symbol}&side=BUY`}
+                            className="p-1.5 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-400 hover:text-emerald-500 transition-colors"
+                            title="Giao dịch"
+                          >
+                            <ShoppingCart className="h-4 w-4" />
+                          </Link>
                           <Link
                             href={`/stocks/${item.symbol}`}
                             className="p-1.5 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-400 hover:text-blue-500 transition-colors"

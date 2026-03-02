@@ -6,6 +6,8 @@ export const addHoldingInputDtoSchema = z.object({
   quantity: z.number().positive(),
   averagePrice: z.number().positive(),
   horizon: z.enum(["short-term", "medium-term", "long-term", "hold-forever"]),
+  stopLoss: z.number().positive().optional(),
+  takeProfit: z.number().positive().optional(),
 });
 
 export const addHoldingOutputDtoSchema = z.object({
@@ -15,6 +17,8 @@ export const addHoldingOutputDtoSchema = z.object({
   quantity: z.number(),
   averagePrice: z.number(),
   horizon: z.string(),
+  stopLoss: z.number().nullable(),
+  takeProfit: z.number().nullable(),
   createdAt: z.date(),
 });
 

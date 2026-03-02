@@ -12,6 +12,7 @@ import {
   Settings,
   Shield,
   TrendingUp,
+  Wallet,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -22,6 +23,7 @@ const navigation = [
   { name: "Portfolio", href: "/portfolio", icon: Briefcase },
   { name: "Watchlist", href: "/watchlist", icon: Eye },
   { name: "Market Watch", href: "/market-watch", icon: TrendingUp },
+  { name: "Trading", href: "/trading", icon: Wallet },
   { name: "Reports", href: "/reports", icon: BarChart3 },
   { name: "Settings", href: "/settings", icon: Settings },
 ];

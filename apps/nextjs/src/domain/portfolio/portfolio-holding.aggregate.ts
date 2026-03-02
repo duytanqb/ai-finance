@@ -13,6 +13,8 @@ export interface IPortfolioHoldingProps {
   quantity: Quantity;
   averagePrice: AveragePrice;
   horizon: InvestmentHorizon;
+  stopLoss: number | null;
+  takeProfit: number | null;
   createdAt: Date;
   updatedAt?: Date;
 }
@@ -37,6 +39,8 @@ export class PortfolioHolding extends Aggregate<IPortfolioHoldingProps> {
     const holding = new PortfolioHolding(
       {
         ...props,
+        stopLoss: props.stopLoss ?? null,
+        takeProfit: props.takeProfit ?? null,
         createdAt: new Date(),
         updatedAt: undefined,
       },
@@ -97,5 +101,15 @@ export class PortfolioHolding extends Aggregate<IPortfolioHoldingProps> {
     );
 
     return Result.ok();
+  }
+
+  updateStopLoss(stopLoss: number | null): void {
+    this._props.stopLoss = stopLoss;
+    this._props.updatedAt = new Date();
+  }
+
+  updateTakeProfit(takeProfit: number | null): void {
+    this._props.takeProfit = takeProfit;
+    this._props.updatedAt = new Date();
   }
 }

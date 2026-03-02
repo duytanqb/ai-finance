@@ -20,6 +20,8 @@ export async function PUT(
     quantity: body.quantity,
     averagePrice: body.averagePrice,
     horizon: body.horizon,
+    stopLoss: body.stopLoss,
+    takeProfit: body.takeProfit,
   });
 
   if (result.isFailure) {

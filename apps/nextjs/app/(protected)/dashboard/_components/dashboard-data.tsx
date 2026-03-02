@@ -24,6 +24,11 @@ interface DashboardData {
   }>;
 }
 
+interface MarketData {
+  vnindex: { value: number; change: number; changePercent: number } | null;
+  hnxindex: { value: number; change: number; changePercent: number } | null;
+}
+
 function formatAge(dateStr: string): string {
   const diffMs = Date.now() - new Date(dateStr).getTime();
   const hours = Math.floor(diffMs / (1000 * 60 * 60));
@@ -35,14 +40,21 @@ function formatAge(dateStr: string): string {
 
 export function DashboardData() {
   const [data, setData] = useState<DashboardData | null>(null);
+  const [market, setMarket] = useState<MarketData | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     async function fetchDashboard() {
       try {
-        const res = await fetch("/api/dashboard");
-        if (res.ok) {
-          setData(await res.json());
+        const [dashRes, marketRes] = await Promise.allSettled([
+          fetch("/api/dashboard"),
+          fetch("/api/dashboard/market"),
+        ]);
+        if (dashRes.status === "fulfilled" && dashRes.value.ok) {
+          setData(await dashRes.value.json());
+        }
+        if (marketRes.status === "fulfilled" && marketRes.value.ok) {
+          setMarket(await marketRes.value.json());
         }
       } catch {
         // fallback to empty state
@@ -68,12 +80,8 @@ export function DashboardData() {
   return (
     <>
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <StatCard label="VN-Index" value="Coming soon" subtitle="Market data" />
-        <StatCard
-          label="HNX-Index"
-          value="Coming soon"
-          subtitle="Market data"
-        />
+        <IndexCard label="VN-Index" data={market?.vnindex ?? null} />
+        <IndexCard label="HNX-Index" data={market?.hnxindex ?? null} />
         <StatCard
           label="Portfolio"
           value={String(portfolioCount)}
@@ -200,6 +208,48 @@ function StatCard({
         {value}
       </p>
       <p className="text-xs text-zinc-400 mt-1">{subtitle}</p>
+    </div>
+  );
+}
+
+function IndexCard({
+  label,
+  data,
+}: {
+  label: string;
+  data: { value: number; change: number; changePercent: number } | null;
+}) {
+  if (!data) {
+    return (
+      <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-4">
+        <p className="text-xs font-medium text-zinc-500 uppercase tracking-wide">
+          {label}
+        </p>
+        <p className="text-2xl font-bold text-zinc-400 mt-1">-</p>
+        <p className="text-xs text-zinc-400 mt-1">Unavailable</p>
+      </div>
+    );
+  }
+
+  const positive = data.change >= 0;
+  return (
+    <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-4">
+      <p className="text-xs font-medium text-zinc-500 uppercase tracking-wide">
+        {label}
+      </p>
+      <p className="text-2xl font-bold text-zinc-900 dark:text-zinc-100 mt-1 font-mono">
+        {data.value.toLocaleString("vi-VN", {
+          minimumFractionDigits: 1,
+          maximumFractionDigits: 1,
+        })}
+      </p>
+      <p
+        className={`text-xs font-medium mt-1 ${positive ? "text-emerald-600" : "text-red-500"}`}
+      >
+        {positive ? "+" : ""}
+        {data.change.toFixed(1)} ({positive ? "+" : ""}
+        {data.changePercent.toFixed(2)}%)
+      </p>
     </div>
   );
 }

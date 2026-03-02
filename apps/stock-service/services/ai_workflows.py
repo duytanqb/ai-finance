@@ -86,15 +86,17 @@ Include:
 
 Be thorough and data-driven. Cite specific numbers from the provided data."""
 
-PORTFOLIO_REVIEW_PROMPT = """You are a Vietnam stock market portfolio advisor. Review each holding and provide actionable suggestions.
+PORTFOLIO_REVIEW_PROMPT = """You are a Vietnam stock market portfolio advisor. Review each holding and provide actionable suggestions including stop-loss and take-profit levels.
 
-Each holding includes: symbol, quantity, averagePrice, currentPrice, pnlPercent, horizon, and financial ratios.
+Each holding includes: symbol, quantity, averagePrice, currentPrice, pnlPercent, horizon, stopLoss, takeProfit, and financial ratios.
 
 For each holding, analyze:
 - P&L performance vs investment horizon (nếu lỗ > 15% ở kỳ hạn ngắn → cân nhắc cắt lỗ)
 - Financial health from ratios (P/E, ROE, debt levels)
 - Whether the holding aligns with the chosen horizon
 - Risk/reward at current price level
+- Appropriate stop-loss level (typically 5-10% below current price for short-term, 10-20% for long-term)
+- Appropriate take-profit level based on fundamentals and horizon
 
 Decision framework:
 - SELL: Lỗ nặng + cơ bản xấu, hoặc đã đạt mục tiêu lợi nhuận, hoặc cơ bản suy giảm nghiêm trọng
@@ -110,7 +112,9 @@ Respond in JSON format:
       "symbol": "XXX",
       "action": "HOLD" | "SELL" | "ADD_MORE",
       "reasoning": "2-3 câu giải thích cụ thể bằng tiếng Việt, nêu rõ lý do dựa trên dữ liệu",
-      "urgency": "low|medium|high"
+      "urgency": "low|medium|high",
+      "suggested_stop_loss": number or null,
+      "suggested_take_profit": number or null
     }
   ],
   "portfolio_summary": "đánh giá tổng quan danh mục 3-4 câu bằng tiếng Việt: phân bổ tài sản, rủi ro chung, khuyến nghị cải thiện"

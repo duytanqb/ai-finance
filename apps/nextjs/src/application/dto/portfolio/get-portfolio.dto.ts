@@ -11,6 +11,8 @@ export const holdingDtoSchema = z.object({
   quantity: z.number(),
   averagePrice: z.number(),
   horizon: z.string(),
+  stopLoss: z.number().nullable(),
+  takeProfit: z.number().nullable(),
   createdAt: z.date(),
   updatedAt: z.date().optional(),
 });

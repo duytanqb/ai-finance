@@ -1,8 +1,12 @@
 """DNSE Lightspeed API client for chart data and trading."""
 
+import base64
 import hashlib
 import hmac
 import time
+import uuid
+from datetime import datetime, timezone
+from urllib.parse import quote
 
 import httpx
 
@@ -115,36 +119,46 @@ class DnseClient:
         return candles
 
     @staticmethod
-    def _sign(api_secret: str, message: str) -> str:
-        """Create HMAC-SHA256 signature for DNSE OpenAPI."""
-        return hmac.new(
-            api_secret.encode("utf-8"),
-            message.encode("utf-8"),
-            hashlib.sha256,
-        ).hexdigest()
+    def _build_signature(api_secret: str, method: str, path: str, date_value: str, nonce: str | None = None) -> str:
+        """Build HMAC-SHA256 signature following DNSE HTTP Signature spec."""
+        sig_string = f"(request-target): {method.lower()} {path}\ndate: {date_value}"
+        if nonce:
+            sig_string += f"\nnonce: {nonce}"
+        mac = hmac.new(api_secret.encode("utf-8"), sig_string.encode("utf-8"), hashlib.sha256)
+        return quote(base64.b64encode(mac.digest()).decode("utf-8"), safe="")
+
+    @staticmethod
+    def _make_openapi_headers(api_key: str, api_secret: str, method: str, path: str) -> dict:
+        """Create signed headers for DNSE OpenAPI requests."""
+        date_value = datetime.now(timezone.utc).strftime("%a, %d %b %Y %H:%M:%S %z")
+        nonce = uuid.uuid4().hex
+        headers_list = "(request-target) date"
+        signature = DnseClient._build_signature(api_secret, method, path, date_value, nonce)
+        sig_header = (
+            f'Signature keyId="{api_key}",algorithm="hmac-sha256",'
+            f'headers="{headers_list}",signature="{signature}",nonce="{nonce}"'
+        )
+        return {
+            "Date": date_value,
+            "X-Signature": sig_header,
+            "x-api-key": api_key,
+        }
 
     async def verify_api_key(self, api_key: str, api_secret: str) -> bool:
         """Test if DNSE API Key and Secret are valid.
 
-        Calls a lightweight OpenAPI endpoint to verify credentials.
+        Calls GET /accounts on DNSE OpenAPI to verify credentials.
 
         Returns:
             True if the API key is accepted.
         """
         try:
-            ts = str(int(time.time() * 1000))
-            signature = self._sign(api_secret, ts)
-            headers = {
-                "X-API-Key": api_key,
-                "X-Signature": signature,
-                "X-Timestamp": ts,
-            }
-            url = f"{OPENAPI_URL}/api/account"
+            path = "/accounts"
+            headers = self._make_openapi_headers(api_key, api_secret, "GET", path)
+            url = f"{OPENAPI_URL}{path}"
             async with httpx.AsyncClient(timeout=self.timeout) as client:
                 resp = await client.get(url, headers=headers)
                 return resp.status_code == 200
-        except httpx.HTTPStatusError:
-            return False
         except Exception:
             return False
 

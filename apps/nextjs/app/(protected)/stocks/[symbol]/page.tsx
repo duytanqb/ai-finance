@@ -13,6 +13,7 @@ import {
   Eye,
   Loader2,
   RefreshCw,
+  ShoppingCart,
   Sparkles,
 } from "lucide-react";
 import Link from "next/link";
@@ -521,6 +522,13 @@ export default function StockDetailPage() {
           {watchlistMsg ||
             (addingToWatchlist ? "Adding..." : "Add to Watchlist")}
         </button>
+        <Link
+          href={`/trading?symbol=${symbol}&side=BUY`}
+          className="inline-flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium rounded-lg border border-zinc-200 dark:border-zinc-700 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+        >
+          <ShoppingCart className="h-3.5 w-3.5" />
+          Trade
+        </Link>
         {analysisAge && (
           <span className="inline-flex items-center gap-1 text-xs text-zinc-400">
             <Clock className="h-3 w-3" />
