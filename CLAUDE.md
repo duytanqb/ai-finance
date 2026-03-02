@@ -8,10 +8,10 @@ AI-powered finance platform for Vietnam stock market (HOSE, HNX, UPCOM). The sys
 
 ## Tech Stack
 
-- **Frontend:** Next.js 16 + TypeScript + TailwindCSS 4 + shadcn/ui + TradingView Lightweight Charts
+- **Frontend:** Next.js 16 + TypeScript + TailwindCSS 4 + shadcn/ui + lightweight-charts (TradingView open-source)
 - **Backend:** Next.js API Routes + Python microservice (FastAPI) for stock data via `vnstock`
 - **AI:** Claude API (Sonnet for fast tasks, Opus for deep research) — action-driven, no chat
-- **Data:** vnstock (VCI source), CafeF/VnExpress news crawl, SSI API (future)
+- **Data:** DNSE Lightspeed API (price/chart), vnstock (VCI — financials/listings), CafeF/VnExpress/Vietstock news crawl
 - **Database:** PostgreSQL + Drizzle ORM + Redis (stock data cache)
 - **Auth:** BetterAuth (from CleanStack)
 - **Deploy:** Vercel (web) + Railway (Python service) + Supabase (DB)
@@ -116,6 +116,7 @@ NEXT_PUBLIC_APP_URL=https://yourdomain.com
 BETTER_AUTH_SECRET=<openssl rand -base64 32>
 BETTER_AUTH_URL=https://yourdomain.com
 STOCK_SERVICE_URL=http://localhost:8000
+CREDENTIAL_ENCRYPTION_KEY=<openssl rand -hex 32>
 EOF
 
 # Python service env
@@ -261,8 +262,8 @@ sudo systemctl status nginx
 
 ### Phase 1 — Foundation (Done)
 - [x] Stock lookup by ticker — full-page search with 300ms debounce, popular stocks default
-- [x] Price charts — TradingView Advanced Chart embed (Candle/Line/Area/Bar/Heikin Ashi, MA/BB/RSI/MACD indicators)
-- [x] Fundamental metrics — P/E, ROE, EPS, P/B, D/E, Market Cap on stock detail page
+- [x] Price charts — lightweight-charts (Candle/Line/Area, 7 intervals: 1m–1W) powered by DNSE free API
+- [x] Fundamental metrics — P/E, ROE, EPS, P/B, D/E, Market Cap on stock detail page (vnstock/VCI)
 - [x] **"Analyze Stock" AI button** — fetches price + financials + news → Claude Sonnet → BUY/WATCH/AVOID report, persisted to DB
 - [ ] Full financial statements UI (income, balance sheet, cash flow) — API exists, frontend not built
 
@@ -278,12 +279,13 @@ sudo systemctl status nginx
 
 ### Phase 3 — Market Watch (Done)
 - [x] **Sector-first pipeline** — 5-stage funnel running every 6h:
-  1. News → Sector Discovery (crawl 40 CafeF/VnExpress headlines → AI identifies 3-5 hot sectors)
-  2. Sector → Stock Discovery (find stocks in hot sectors → light pre-filter)
+  1. News → Sector Discovery (crawl 40 CafeF/VnExpress/Vietstock headlines → AI identifies 3-5 hot sectors)
+  2. Sector → Stock Discovery (find stocks in hot sectors → light pre-filter, HOSE/HNX only)
   3. Quality Gate (financial disqualifiers + composite score)
   4. AI Analysis with sector context (batch assess + full analysis top 5)
   5. News Enrichment (per-candidate articles)
-- [x] **News crawler** — CafeF + VnExpress, Vietnamese date parsing, market-wide + per-stock
+- [x] **News crawler** — CafeF + VnExpress + Vietstock, Vietnamese date parsing, market-wide + per-stock
+- [x] **Pipeline progress tracking** — real-time stage updates via SSE, stepper UI on Market Watch page
 - [x] **Market Watch dashboard** — market mood badge, sector overview cards with confidence bars, stock picks grouped by sector, manual refresh with async polling
 - [x] DB persistence — `market_watch_digest` table with sector_analysis, sector_groups, market_mood, pipeline_type
 
@@ -293,10 +295,15 @@ sudo systemctl status nginx
 - [ ] **"Sector Overview" button** — not implemented (sector analysis only in Market Watch pipeline)
 - [ ] **"Screen with AI" button** — natural language → AI filters, not implemented
 
-### Phase 5 — Advanced (Not Started)
+### Phase 5 — DNSE Trading Integration (In Progress)
+- [x] **DNSE chart data** — free OHLC API for stock + index charts, no auth required
+- [x] **DNSE credential storage** — per-user API Key + Secret, AES-256-GCM encrypted in DB (`user_credential` table)
+- [x] **Trading settings page** — `/settings/trading` with save/test/remove for DNSE API credentials
+- [x] **DNSE OpenAPI auth** — HMAC-SHA256 signature verification (X-API-Key + X-Signature + X-Timestamp)
+- [ ] Live trading API integration (order placement, account info)
+- [ ] Real-time MQTT price feed (`datafeed-lts.dnse.com.vn:443/wss`)
 - [ ] Push notifications and alerts
 - [ ] Dividend tracking and calendar
-- [ ] Trading integration via DNSE/SSI API
 
 ### Navigation (Sidebar)
 Dashboard, Stocks, Portfolio, Watchlist, Market Watch, Reports, Settings
@@ -306,12 +313,13 @@ Dashboard, Stocks, Portfolio, Watchlist, Market Watch, Reports, Settings
 |------|--------|
 | `/dashboard` | Stats cards + recent AI reports. VN-Index/HNX "Coming soon" |
 | `/stocks` | Search + popular stocks list |
-| `/stocks/[symbol]` | Chart + metrics + Analyze + Deep Research buttons |
+| `/stocks/[symbol]` | lightweight-charts (DNSE) + metrics + Analyze + Deep Research buttons |
 | `/portfolio` | CRUD table + P&L + AI Review button |
 | `/watchlist` | Price table + target tracking |
 | `/market-watch` | Sector cards + grouped stock picks + refresh |
 | `/screener` | Filter form (not in nav) |
 | `/reports` | Stub — shows empty state only |
+| `/settings/trading` | DNSE API Key/Secret form + test connection |
 
 ## AI Architecture (Action-Driven)
 
@@ -357,34 +365,40 @@ ai-finance/
 │   │   │       ├── mappers/           # Domain ↔ DB mappers
 │   │   │       └── guards/            # Auth guards
 │   │   ├── common/di/                 # DI container + modules
-│   │   ├── lib/stock-service.ts       # Python service HTTP client
+│   │   ├── lib/
+│   │   │   ├── stock-service.ts       # Python service HTTP client
+│   │   │   └── encryption.ts          # AES-256-GCM encrypt/decrypt for credentials
 │   │   └── app/
 │   │       ├── (protected)/
 │   │       │   ├── dashboard/         # Stats + recent reports
-│   │       │   ├── stocks/            # Search + [symbol] detail
+│   │       │   ├── stocks/            # Search + [symbol] detail (lightweight-charts)
 │   │       │   ├── portfolio/         # CRUD + AI review
 │   │       │   ├── watchlist/         # Price monitoring
-│   │       │   ├── market-watch/      # Sector-first digest
+│   │       │   ├── market-watch/      # Sector-first digest + pipeline stepper
 │   │       │   ├── screener/          # Filter form
+│   │       │   ├── settings/trading/  # DNSE API credential management
 │   │       │   └── reports/           # Stub
 │   │       └── api/
 │   │           ├── stocks/            # Proxy to Python service
 │   │           ├── portfolio/         # CRUD + AI review
 │   │           ├── watchlist/         # CRUD
+│   │           ├── settings/credentials/ # DNSE credential CRUD + test
 │   │           └── dashboard/         # Stats query
 │   │
 │   └── stock-service/                 # Python FastAPI microservice
 │       ├── main.py                    # CORS from env, scheduler lifespan
 │       ├── routers/
-│       │   ├── price.py               # /api/price/history, /api/price/board
+│       │   ├── price.py               # /api/price/history (DNSE+VCI), /api/price/board, /api/price/index
 │       │   ├── financial.py           # /api/financial/{symbol}/ratios, income, balance, cashflow
 │       │   ├── screening.py           # /api/screening/scan
 │       │   ├── listing.py             # /api/listing/symbols, /api/listing/search
 │       │   ├── ai_actions.py          # /api/ai/analyze, deep-research, compare, portfolio-review
-│       │   └── market_watch.py        # /api/market-watch/digest, status, latest
+│       │   ├── market_watch.py        # /api/market-watch/digest, status, latest
+│       │   └── dnse.py                # /api/dnse/verify (API key verification)
 │       ├── services/
-│       │   ├── vnstock_client.py      # VCI data: price, ratios, financials, industries
-│       │   ├── news_crawler.py        # CafeF + VnExpress scraper
+│       │   ├── vnstock_client.py      # VCI data: financials, ratios, listings, industries
+│       │   ├── dnse_client.py         # DNSE API: OHLC charts, index data, OpenAPI auth
+│       │   ├── news_crawler.py        # CafeF + VnExpress + Vietstock scraper
 │       │   ├── ai_workflows.py        # All Claude prompts + workflow methods
 │       │   ├── claude_client.py       # Anthropic API wrapper (Sonnet/Opus)
 │       │   └── cache.py               # Redis TTL cache
@@ -399,7 +413,7 @@ ai-finance/
 │
 ├── packages/
 │   ├── ddd-kit/                       # DDD primitives (Result, Option, Entity)
-│   ├── drizzle/                       # DB schema (auth, stock, portfolio, watchlist)
+│   ├── drizzle/                       # DB schema (auth, stock, portfolio, watchlist, user_credential)
 │   └── ui/                            # Shared shadcn/ui components
 │
 └── docker-compose.yaml                # Local dev: PostgreSQL only
@@ -414,6 +428,7 @@ NEXT_PUBLIC_APP_URL=http://localhost:3000
 BETTER_AUTH_SECRET=                      # openssl rand -base64 32
 BETTER_AUTH_URL=http://localhost:3000
 STOCK_SERVICE_URL=http://localhost:8000  # Python service URL
+CREDENTIAL_ENCRYPTION_KEY=              # openssl rand -hex 32 (64-char hex, for DNSE credential encryption)
 ```
 
 **Python stock service** (`apps/stock-service/.env`):
@@ -423,6 +438,25 @@ REDIS_URL=redis://localhost:6379
 CORS_ORIGINS=http://localhost:3000      # Comma-separated for multiple origins
 APP_URL=http://localhost:3000           # Next.js URL for DB save callback
 ```
+
+## Data Sources
+
+### DNSE Lightspeed API (price/chart data)
+- **Chart API** (free, no auth): `services.entrade.com.vn/chart-api/v2/ohlcs/stock` — OHLC at 1/5/15/30/1H/1D/1W
+- **Index API** (free): `services.entrade.com.vn/chart-api/v2/ohlcs/index` — VN-Index, HNX-Index
+- **OpenAPI** (auth required): `openapi.dnse.com.vn` — uses `X-API-Key` + `X-Signature` (HMAC-SHA256) + `X-Timestamp`
+- **Price format**: 1000 VND units (65.0 = 65,000 VND)
+- **Does NOT provide**: financials, ratios, company profiles, listings, search, screening
+
+### vnstock / VCI (financials, listings, screening)
+- Python-only library (`pip install vnstock`) — no JS SDK, no REST API
+- Provides: financial statements, ratios (P/E, P/B, ROE, EPS), company profiles, industry data, stock listings, search, screening
+- Required for: AI analysis, deep research, portfolio review, market watch pipeline, screener
+- **Cannot be replaced** by DNSE — Python service is required
+
+### News Crawlers
+- CafeF, VnExpress, Vietstock — market-wide + per-stock headlines
+- Vietnamese date parsing, deduplication
 
 ---
 
