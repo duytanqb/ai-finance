@@ -113,6 +113,9 @@ class DnseClient:
             resp.raise_for_status()
             data = resp.json()
 
+        if not isinstance(data, dict):
+            raise ValueError(f"Invalid response format for {symbol}: expected dict, got {type(data)}")
+
         candles = self._parse_ohlc(data)
         ttl = TTL_PRICE if resolution in ("1", "5", "15", "30", "1H") else TTL_FINANCIAL
         cache.set(cache_key, candles, ttl)

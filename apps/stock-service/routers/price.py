@@ -54,6 +54,9 @@ async def get_index_history(
         )
         return {"symbol": symbol.upper(), "data": data, "source": "dnse"}
     except Exception as e:
+        import traceback
+        error_detail = f"Error fetching {symbol}: {str(e)}\n{traceback.format_exc()}"
+        print(error_detail)  # Log to console
         raise HTTPException(status_code=500, detail=str(e))
 
 
