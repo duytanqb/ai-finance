@@ -1,0 +1,53 @@
+services:
+  nextjs:
+    container_name: ai-finance
+    build:
+      context: .
+      dockerfile: ./apps/nextjs/Dockerfile
+    env_file:
+      - ./.env
+      - ./apps/nextjs/.env
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: "postgresql://postgres.ohfiugihkjnvdeouuamt:AhakCbSQPP%40@aws-1-ap-northeast-1.pooler.supabase.com:5432/postgres"
+      NEXT_PUBLIC_APP_URL: https://finance.dragons.asia
+      BETTER_AUTH_URL: https://finance.dragons.asia
+      STOCK_SERVICE_URL: http://stock-service:8000
+    depends_on:
+      - stock-service
+    ports:
+      - "127.0.0.1:3000:3000"
+    networks:
+      - app-network
+    restart: unless-stopped
+
+  stock-service:
+    container_name: stock-service
+    build:
+      context: ./apps/stock-service
+      dockerfile: ./Dockerfile
+    env_file:
+      - ./apps/stock-service/.env
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      CORS_ORIGINS: https://finance.dragons.asia
+      APP_URL: https://finance.dragons.asia
+    depends_on:
+      - redis
+    ports:
+      - "127.0.0.1:8000:8000"
+    networks:
+      - app-network
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    restart: unless-stopped
+    networks:
+      - app-network
+
+networks:
+  app-network:
+    driver: bridge
+
