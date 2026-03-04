@@ -232,6 +232,41 @@ class VnstockClient:
             })
         return matched
 
+    MAJOR_STOCKS = [
+        "VCB", "FPT", "TCB", "HPG", "VNM", "MWG", "VIC", "VHM", "MSN", "BID",
+        "CTG", "GAS", "SAB", "ACB", "SSI", "VPB", "STB", "HDB", "MBB", "TPB",
+        "KDH", "VRE", "PDR", "DGC", "NVL", "KBC", "DIG", "REE", "GVR", "PLX",
+        "PNJ", "VJC", "BCM", "SHB", "LPB", "EIB", "OCB", "MSB", "VIB", "TCH",
+        "DXG", "HDG", "HSG", "PC1", "KDC", "GMD", "PVD", "GEX", "SBT", "VND",
+    ]
+
+    def get_top_stocks(self, count: int = 10) -> list[dict]:
+        key = f"stock:top_stocks:{count}"
+
+        def fetch():
+            board = self.get_price_board(self.MAJOR_STOCKS)
+            for rec in board:
+                rec["accumulated_volume"] = self._safe_float(rec.get("accumulated_volume")) or 0
+                rec["accumulated_value"] = self._safe_float(rec.get("accumulated_value")) or 0
+                rec["match_price"] = self._safe_float(rec.get("match_price")) or 0
+                rec["ref_price"] = self._safe_float(rec.get("ref_price")) or 0
+            board.sort(key=lambda r: r["accumulated_volume"], reverse=True)
+            return [
+                {
+                    "symbol": r.get("symbol", ""),
+                    "organ_name": r.get("organ_name", ""),
+                    "match_price": r["match_price"],
+                    "ref_price": r["ref_price"],
+                    "change": r.get("change", 0),
+                    "pct_change": r.get("pct_change", 0),
+                    "accumulated_volume": r["accumulated_volume"],
+                    "accumulated_value": r["accumulated_value"],
+                }
+                for r in board[:count]
+            ]
+
+        return self._cached(key, TTL_PRICE, fetch)
+
     def search_symbol(self, query: str) -> list[dict]:
         symbols = self.get_all_symbols()
         query_lower = query.lower()

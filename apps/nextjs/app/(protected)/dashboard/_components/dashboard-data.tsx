@@ -1,6 +1,14 @@
 "use client";
 
 import {
+  AreaSeries,
+  ColorType,
+  createChart,
+  type IChartApi,
+  type LineData,
+  type Time,
+} from "lightweight-charts";
+import {
   BarChart3,
   Briefcase,
   Eye,
@@ -9,7 +17,7 @@ import {
   TrendingUp,
 } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 interface DashboardData {
   portfolio: { count: number };
@@ -24,9 +32,27 @@ interface DashboardData {
   }>;
 }
 
+interface IndexData {
+  value: number;
+  change: number;
+  changePercent: number;
+  chart: Array<{ time: number; value: number }>;
+}
+
 interface MarketData {
-  vnindex: { value: number; change: number; changePercent: number } | null;
-  hnxindex: { value: number; change: number; changePercent: number } | null;
+  vnindex: IndexData | null;
+  hnxindex: IndexData | null;
+}
+
+interface TopStock {
+  symbol: string;
+  organ_name: string;
+  match_price: number;
+  ref_price: number;
+  change: number;
+  pct_change: number;
+  accumulated_volume: number;
+  accumulated_value: number;
 }
 
 function formatAge(dateStr: string): string {
@@ -38,23 +64,41 @@ function formatAge(dateStr: string): string {
   return `${days}d ago`;
 }
 
+function formatVolume(vol: number): string {
+  if (vol >= 1_000_000) return `${(vol / 1_000_000).toFixed(1)}M`;
+  if (vol >= 1_000) return `${(vol / 1_000).toFixed(0)}K`;
+  return String(vol);
+}
+
+function formatValue(val: number): string {
+  if (val >= 1_000_000) return `${(val / 1_000_000).toFixed(0)}B`;
+  if (val >= 1_000) return `${(val / 1_000).toFixed(0)}M`;
+  return val.toFixed(0);
+}
+
 export function DashboardData() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [market, setMarket] = useState<MarketData | null>(null);
+  const [topStocks, setTopStocks] = useState<TopStock[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     async function fetchDashboard() {
       try {
-        const [dashRes, marketRes] = await Promise.allSettled([
+        const [dashRes, marketRes, topRes] = await Promise.allSettled([
           fetch("/api/dashboard"),
           fetch("/api/dashboard/market"),
+          fetch("/api/dashboard/top-stocks"),
         ]);
         if (dashRes.status === "fulfilled" && dashRes.value.ok) {
           setData(await dashRes.value.json());
         }
         if (marketRes.status === "fulfilled" && marketRes.value.ok) {
           setMarket(await marketRes.value.json());
+        }
+        if (topRes.status === "fulfilled" && topRes.value.ok) {
+          const result = await topRes.value.json();
+          setTopStocks(result.data ?? []);
         }
       } catch {
         // fallback to empty state
@@ -101,6 +145,8 @@ export function DashboardData() {
           }
         />
       </div>
+
+      {topStocks.length > 0 && <TopStocksTable stocks={topStocks} />}
 
       <div className="grid gap-4 md:grid-cols-3">
         <QuickAction
@@ -212,13 +258,83 @@ function StatCard({
   );
 }
 
-function IndexCard({
-  label,
-  data,
+function IndexMiniChart({
+  chart,
+  positive,
 }: {
-  label: string;
-  data: { value: number; change: number; changePercent: number } | null;
+  chart: Array<{ time: number; value: number }>;
+  positive: boolean;
 }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const chartRef = useRef<IChartApi | null>(null);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container || chart.length === 0) return;
+
+    const c = createChart(container, {
+      width: container.clientWidth,
+      height: 60,
+      layout: {
+        background: { type: ColorType.Solid, color: "transparent" },
+        textColor: "transparent",
+      },
+      grid: {
+        vertLines: { visible: false },
+        horzLines: { visible: false },
+      },
+      crosshair: {
+        vertLine: { visible: false },
+        horzLine: { visible: false },
+      },
+      rightPriceScale: { visible: false },
+      timeScale: { visible: false },
+      handleScroll: false,
+      handleScale: false,
+    });
+
+    chartRef.current = c;
+
+    const color = positive ? "#22c55e" : "#ef4444";
+    const series = c.addSeries(AreaSeries, {
+      topColor: positive ? "rgba(34,197,94,0.3)" : "rgba(239,68,68,0.3)",
+      bottomColor: positive ? "rgba(34,197,94,0.0)" : "rgba(239,68,68,0.0)",
+      lineColor: color,
+      lineWidth: 2,
+      crosshairMarkerVisible: false,
+      priceLineVisible: false,
+      lastValueVisible: false,
+    });
+
+    const lineData: LineData[] = chart.map((p) => ({
+      time: p.time as Time,
+      value: p.value,
+    }));
+    series.setData(lineData);
+    c.timeScale().fitContent();
+
+    const observer = new ResizeObserver(() => {
+      if (chartRef.current && container) {
+        chartRef.current.applyOptions({ width: container.clientWidth });
+      }
+    });
+    observer.observe(container);
+
+    return () => {
+      observer.disconnect();
+      if (chartRef.current) {
+        chartRef.current.remove();
+        chartRef.current = null;
+      }
+    };
+  }, [chart, positive]);
+
+  if (chart.length === 0) return null;
+
+  return <div ref={containerRef} className="w-full h-[60px] mt-2" />;
+}
+
+function IndexCard({ label, data }: { label: string; data: IndexData | null }) {
   if (!data) {
     return (
       <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-4">
@@ -250,6 +366,74 @@ function IndexCard({
         {data.change.toFixed(1)} ({positive ? "+" : ""}
         {data.changePercent.toFixed(2)}%)
       </p>
+      <IndexMiniChart chart={data.chart ?? []} positive={positive} />
+    </div>
+  );
+}
+
+function TopStocksTable({ stocks }: { stocks: TopStock[] }) {
+  return (
+    <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-5">
+      <h2 className="font-semibold text-zinc-900 dark:text-zinc-100 mb-4">
+        Giao dịch nhiều nhất hôm nay
+      </h2>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-xs text-zinc-500 uppercase tracking-wide border-b border-zinc-100 dark:border-zinc-800">
+              <th className="text-left pb-2 font-medium">Mã</th>
+              <th className="text-right pb-2 font-medium">Giá</th>
+              <th className="text-right pb-2 font-medium">+/-</th>
+              <th className="text-right pb-2 font-medium">KL</th>
+              <th className="text-right pb-2 font-medium hidden sm:table-cell">
+                GT
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {stocks.map((s) => {
+              const positive = s.pct_change > 0;
+              const negative = s.pct_change < 0;
+              return (
+                <tr
+                  key={s.symbol}
+                  className="border-b border-zinc-50 dark:border-zinc-900 last:border-0"
+                >
+                  <td className="py-2">
+                    <Link
+                      href={`/stocks/${s.symbol}`}
+                      className="font-medium text-zinc-900 dark:text-zinc-100 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+                    >
+                      {s.symbol}
+                    </Link>
+                  </td>
+                  <td className="py-2 text-right font-mono text-zinc-700 dark:text-zinc-300">
+                    {(s.match_price * 1000).toLocaleString("vi-VN")}
+                  </td>
+                  <td
+                    className={`py-2 text-right font-mono font-medium ${
+                      positive
+                        ? "text-emerald-600"
+                        : negative
+                          ? "text-red-500"
+                          : "text-zinc-400"
+                    }`}
+                  >
+                    {positive ? "+" : ""}
+                    {s.pct_change.toFixed(2)}%
+                  </td>
+                  <td className="py-2 text-right font-mono text-zinc-500">
+                    {formatVolume(s.accumulated_volume)}
+                  </td>
+                  <td className="py-2 text-right font-mono text-zinc-500 hidden sm:table-cell">
+                    {formatValue(s.accumulated_value)}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

@@ -57,6 +57,17 @@ async def get_index_history(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/top-stocks")
+async def get_top_stocks(
+    count: int = Query(10, ge=1, le=30, description="Number of top stocks to return"),
+):
+    try:
+        data = client.get_top_stocks(count)
+        return {"data": data}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/board")
 async def get_price_board(
     symbols: str = Query(..., description="Comma-separated symbols"),

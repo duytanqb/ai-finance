@@ -33,28 +33,55 @@ function computeChange(candles: OhlcCandle[]): {
   return { value, change, changePercent };
 }
 
+function toChartPoints(
+  candles: OhlcCandle[],
+): { time: number; value: number }[] {
+  if (!candles || candles.length === 0) return [];
+  return candles.map((c) => ({ time: c.time, value: c.close }));
+}
+
 export async function GET() {
   try {
     const now = Math.floor(Date.now() / 1000);
-    const from = now - 7 * 86400;
+    const dailyFrom = now - 7 * 86400;
+    const intradayFrom = now - 86400;
 
-    const [vnRes, hnxRes] = await Promise.allSettled([
-      stockServiceGet(
-        `/api/price/index/VNINDEX/history?resolution=1D&from_ts=${from}&to_ts=${now}`,
-      ) as Promise<IndexResponse>,
-      stockServiceGet(
-        `/api/price/index/HNXINDEX/history?resolution=1D&from_ts=${from}&to_ts=${now}`,
-      ) as Promise<IndexResponse>,
-    ]);
+    const [vnDailyRes, hnxDailyRes, vnIntradayRes, hnxIntradayRes] =
+      await Promise.allSettled([
+        stockServiceGet(
+          `/api/price/index/VNINDEX/history?resolution=1D&from_ts=${dailyFrom}&to_ts=${now}`,
+        ) as Promise<IndexResponse>,
+        stockServiceGet(
+          `/api/price/index/HNXINDEX/history?resolution=1D&from_ts=${dailyFrom}&to_ts=${now}`,
+        ) as Promise<IndexResponse>,
+        stockServiceGet(
+          `/api/price/index/VNINDEX/history?resolution=15&from_ts=${intradayFrom}&to_ts=${now}`,
+        ) as Promise<IndexResponse>,
+        stockServiceGet(
+          `/api/price/index/HNXINDEX/history?resolution=15&from_ts=${intradayFrom}&to_ts=${now}`,
+        ) as Promise<IndexResponse>,
+      ]);
 
-    const vnData =
-      vnRes.status === "fulfilled" ? computeChange(vnRes.value.data) : null;
-    const hnxData =
-      hnxRes.status === "fulfilled" ? computeChange(hnxRes.value.data) : null;
+    const vnChange =
+      vnDailyRes.status === "fulfilled"
+        ? computeChange(vnDailyRes.value.data)
+        : null;
+    const hnxChange =
+      hnxDailyRes.status === "fulfilled"
+        ? computeChange(hnxDailyRes.value.data)
+        : null;
+    const vnChart =
+      vnIntradayRes.status === "fulfilled"
+        ? toChartPoints(vnIntradayRes.value.data)
+        : [];
+    const hnxChart =
+      hnxIntradayRes.status === "fulfilled"
+        ? toChartPoints(hnxIntradayRes.value.data)
+        : [];
 
     return NextResponse.json({
-      vnindex: vnData,
-      hnxindex: hnxData,
+      vnindex: vnChange ? { ...vnChange, chart: vnChart } : null,
+      hnxindex: hnxChange ? { ...hnxChange, chart: hnxChart } : null,
     });
   } catch {
     return NextResponse.json({ vnindex: null, hnxindex: null });
