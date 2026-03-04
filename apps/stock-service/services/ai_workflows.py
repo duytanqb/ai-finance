@@ -280,6 +280,35 @@ Respond in JSON:
   "market_summary": "2-3 câu tóm tắt tâm lý thị trường bằng tiếng Việt"
 }"""
 
+NEWS_STOCK_SELECTION_PROMPT = """You are a Vietnam stock market analyst.
+Given hot sectors and market news, select the top {limit} stocks most likely to benefit from current market conditions.
+
+SECTOR CONTEXT:
+{sector_context}
+
+CANDIDATE STOCKS (from hot sectors):
+{stock_list}
+
+MARKET NEWS HEADLINES:
+{headlines}
+
+Select the {limit} stocks with the STRONGEST news-backed investment thesis.
+Prioritize:
+- Stocks directly mentioned in positive news
+- Stocks that benefit most from sector catalysts
+- Large-cap, liquid stocks (well-known names like VCB, FPT, HPG, TCB, VNM, MWG, VIC, etc.)
+- Stocks in sectors with highest confidence
+
+IMPORTANT: All reasoning in Vietnamese.
+
+Respond in JSON:
+{{
+  "selected": [
+    {{"symbol": "XXX", "reason": "lý do tiếng Việt", "news_relevance": 1-10}}
+  ]
+}}"""
+
+
 SECTOR_AWARE_BATCH_PROMPT = """You are a Vietnam stock market VALUE INVESTING analyst (phong cách đầu tư giá trị).
 You will receive a batch of stock candidates that belong to HOT SECTORS identified from current market news.
 
@@ -708,6 +737,54 @@ IMPORTANT: Write ENTIRELY in Vietnamese. Use clear markdown. Be decisive in your
             result.append(c)
 
         return result
+
+    async def select_stocks_from_news(
+        self, candidates: list[dict], headlines: list[dict], sector_analysis: dict, limit: int = 10
+    ) -> list[dict]:
+        """Use AI to select top N stocks based on news relevance and sector context."""
+        sector_context = ""
+        for s in sector_analysis.get("sectors", []):
+            sector_context += f"- {s.get('sector_name', '')}: {s.get('thesis', '')} (confidence: {s.get('confidence', 0)})\n"
+
+        stock_list = ""
+        for c in candidates:
+            stock_list += f"- {c.get('symbol', '')} ({c.get('name', '')}) — ngành: {c.get('sector_name', '')}, sàn: {c.get('exchange', '')}\n"
+
+        headline_text = ""
+        for h in headlines[:40]:
+            headline_text += f"- {h.get('title', '')}\n"
+
+        prompt = NEWS_STOCK_SELECTION_PROMPT.format(
+            limit=limit,
+            sector_context=sector_context,
+            stock_list=stock_list,
+            headlines=headline_text,
+        )
+
+        response = await self.claude.analyze(prompt, _sanitize({"count": len(candidates), "limit": limit}))
+
+        try:
+            cleaned = response.strip()
+            if cleaned.startswith("```"):
+                cleaned = cleaned.split("\n", 1)[1] if "\n" in cleaned else cleaned
+                cleaned = cleaned.rsplit("```", 1)[0]
+            parsed = json.loads(cleaned)
+            selected_symbols = {s.get("symbol", "").upper() for s in parsed.get("selected", [])}
+            reason_map = {s.get("symbol", "").upper(): s for s in parsed.get("selected", [])}
+        except (json.JSONDecodeError, KeyError):
+            selected_symbols = {c["symbol"] for c in candidates[:limit]}
+            reason_map = {}
+
+        result = []
+        for c in candidates:
+            if c["symbol"].upper() in selected_symbols:
+                ai_info = reason_map.get(c["symbol"].upper(), {})
+                c["news_selection_reason"] = ai_info.get("reason", "")
+                c["news_relevance"] = ai_info.get("news_relevance", 5)
+                result.append(c)
+
+        result.sort(key=lambda x: x.get("news_relevance", 0), reverse=True)
+        return result[:limit]
 
     async def compare_stocks(self, symbols: list[str]) -> dict:
         """Compare 2-3 stocks side by side."""

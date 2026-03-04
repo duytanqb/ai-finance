@@ -396,9 +396,10 @@ function SectorCard({ sector }: { sector: SectorSummary }) {
 const PIPELINE_STAGES = [
   { stage: 1, name: "Phân tích tin tức" },
   { stage: 2, name: "Lọc cổ phiếu theo ngành" },
-  { stage: 3, name: "Kiểm tra tài chính" },
-  { stage: 4, name: "AI phân tích" },
-  { stage: 5, name: "Thu thập tin tức" },
+  { stage: 3, name: "AI chọn lọc theo tin tức" },
+  { stage: 4, name: "Kiểm tra tài chính" },
+  { stage: 5, name: "AI phân tích" },
+  { stage: 6, name: "Thu thập tin tức" },
 ];
 
 function PipelineStepper({ progress }: { progress: PipelineProgress }) {

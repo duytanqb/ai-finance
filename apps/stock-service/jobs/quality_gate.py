@@ -241,6 +241,6 @@ async def run_quality_gate(
             continue
 
     qualified.sort(key=lambda x: x.get("quality_score", 0), reverse=True)
-    result = qualified[:25]
+    result = qualified[:10]
     print(f"[QualityGate] {len(result)} qualified from {len(candidates)} candidates")
     return result

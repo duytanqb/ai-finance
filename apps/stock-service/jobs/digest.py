@@ -1,10 +1,11 @@
 """Market Watch digest pipeline: sector-first funnel.
 
 Stage 1: News → Sector Discovery (crawl headlines → AI identifies 3-5 hot sectors)
-Stage 2: Sector → Stock Discovery (get stocks in hot sectors → light pre-filter)
-Stage 3: Quality Gate (financial disqualifiers + composite score)
-Stage 4: AI Analysis + Sector Context (batch assess + full analysis with sector thesis)
-Stage 5: News Enrichment (per-candidate articles)
+Stage 2: Sector → Stock Discovery (get stocks in hot sectors — no finance calls)
+Stage 3: AI News Selection (pick top 10 stocks by news relevance)
+Stage 4: Quality Gate (financial disqualifiers + composite score, 10 stocks only)
+Stage 5: AI Analysis + Sector Context (batch assess + full analysis with sector thesis)
+Stage 6: News Enrichment (per-candidate articles)
 """
 
 import os
@@ -33,7 +34,7 @@ async def run_and_persist() -> dict:
 
 
 async def run_daily_digest() -> dict:
-    """Run full 5-stage sector-first pipeline."""
+    """Run full 6-stage sector-first pipeline."""
     global _latest_digest
 
     print("=" * 60)
@@ -42,14 +43,15 @@ async def run_daily_digest() -> dict:
 
     stage_counts = {}
     sector_analysis = None
+    headlines = []
 
     # Stage 1: News → Sector Discovery
     _start_stage(1, "Phân tích tin tức")
     update_progress(1, "Phân tích tin tức", "Đang thu thập tin từ CafeF, VnExpress, Vietstock...")
-    print("\n[Digest] Stage 1/5: News → Sector Discovery...")
+    print("\n[Digest] Stage 1/6: News → Sector Discovery...")
     hot_sectors = []
     try:
-        sector_analysis = await _discover_sectors()
+        sector_analysis, headlines = await _discover_sectors()
         hot_sectors = sector_analysis.get("sectors", [])
         stage_counts["stage1_sectors"] = len(hot_sectors)
         stage_counts["market_mood"] = sector_analysis.get("market_mood", "neutral")
@@ -69,9 +71,9 @@ async def run_daily_digest() -> dict:
         _latest_digest = digest
         return digest
 
-    # Stage 2: Sector → Stock Discovery
+    # Stage 2: Sector → Stock Discovery (fast, no finance calls)
     _start_stage(2, "Lọc cổ phiếu theo ngành")
-    print("\n[Digest] Stage 2/5: Sector → Stock Discovery...")
+    print("\n[Digest] Stage 2/6: Sector → Stock Discovery...")
     try:
         def on_scan_progress(detail: str) -> None:
             update_progress(2, "Lọc cổ phiếu theo ngành", detail)
@@ -92,59 +94,80 @@ async def run_daily_digest() -> dict:
         _latest_digest = digest
         return digest
 
-    # Stage 3: Quality Gate
-    _start_stage(3, "Kiểm tra tài chính")
-    print("\n[Digest] Stage 3/5: Financial quality gate...")
+    # Stage 3: AI News Selection (pick top 10 from candidates)
+    _start_stage(3, "AI chọn lọc theo tin tức")
+    print(f"\n[Digest] Stage 3/6: AI News Selection ({len(candidates)} → 10)...")
+    try:
+        update_progress(3, "AI chọn lọc theo tin tức", f"AI đang chọn 10 cổ phiếu từ {len(candidates)} ứng viên...")
+        from services.ai_workflows import AIWorkflowService
+        ai = AIWorkflowService()
+        selected = await ai.select_stocks_from_news(candidates, headlines, sector_analysis, limit=10)
+        stage_counts["stage3_selected"] = len(selected)
+        selected_symbols = ", ".join(c["symbol"] for c in selected[:5])
+        complete_stage(3, "AI chọn lọc theo tin tức", f"Chọn {len(selected)} mã: {selected_symbols}...")
+        print(f"[Digest] Stage 3 result: {len(selected)} stocks selected by AI")
+        for c in selected:
+            print(f"  - {c['symbol']}: {c.get('news_selection_reason', '')[:50]}")
+        candidates = selected
+    except Exception as e:
+        complete_stage(3, "AI chọn lọc theo tin tức", f"Lỗi: {e}")
+        print(f"[Digest] Stage 3 failed: {e}")
+        candidates = candidates[:10]
+        stage_counts["stage3_selected"] = len(candidates)
+
+    # Stage 4: Quality Gate (now only ~10 stocks)
+    _start_stage(4, "Kiểm tra tài chính")
+    print(f"\n[Digest] Stage 4/6: Financial quality gate ({len(candidates)} stocks)...")
     try:
         def on_gate_progress(detail: str) -> None:
-            update_progress(3, "Kiểm tra tài chính", detail)
+            update_progress(4, "Kiểm tra tài chính", detail)
 
         qualified = await run_quality_gate(candidates, on_progress=on_gate_progress)
-        stage_counts["stage3"] = len(qualified)
-        complete_stage(3, "Kiểm tra tài chính", f"{len(qualified)}/{len(candidates)} đạt chất lượng")
-        print(f"[Digest] Stage 3 result: {len(qualified)} qualified")
+        stage_counts["stage4"] = len(qualified)
+        complete_stage(4, "Kiểm tra tài chính", f"{len(qualified)}/{len(candidates)} đạt chất lượng")
+        print(f"[Digest] Stage 4 result: {len(qualified)} qualified")
     except Exception as e:
-        complete_stage(3, "Kiểm tra tài chính", f"Lỗi: {e}")
-        print(f"[Digest] Stage 3 failed: {e}")
-        qualified = candidates[:20]
-        stage_counts["stage3"] = len(qualified)
+        complete_stage(4, "Kiểm tra tài chính", f"Lỗi: {e}")
+        print(f"[Digest] Stage 4 failed: {e}")
+        qualified = candidates[:10]
+        stage_counts["stage4"] = len(qualified)
 
-    # Stage 4: AI Analysis with sector context
-    _start_stage(4, "AI phân tích")
-    print("\n[Digest] Stage 4/5: AI analysis with sector context...")
+    # Stage 5: AI Analysis with sector context
+    _start_stage(5, "AI phân tích")
+    print(f"\n[Digest] Stage 5/6: AI analysis with sector context...")
     try:
         def on_ai_progress(detail: str) -> None:
-            update_progress(4, "AI phân tích", detail)
+            update_progress(5, "AI phân tích", detail)
 
         analyzed = await run_deep_research(qualified, sector_analysis, on_progress=on_ai_progress)
         ai_count = sum(
             1 for a in analyzed
             if a.get("ai_analysis") and a["ai_analysis"].get("confidence", 0) > 0
         )
-        stage_counts["stage4_analyzed"] = ai_count
-        stage_counts["stage4_total"] = len(analyzed)
-        complete_stage(4, "AI phân tích", f"{ai_count} cổ phiếu phân tích chuyên sâu")
-        print(f"[Digest] Stage 4 result: {len(analyzed)} stocks ({ai_count} fully analyzed)")
+        stage_counts["stage5_analyzed"] = ai_count
+        stage_counts["stage5_total"] = len(analyzed)
+        complete_stage(5, "AI phân tích", f"{ai_count} cổ phiếu phân tích chuyên sâu")
+        print(f"[Digest] Stage 5 result: {len(analyzed)} stocks ({ai_count} fully analyzed)")
     except Exception as e:
-        complete_stage(4, "AI phân tích", f"Lỗi: {e}")
-        print(f"[Digest] Stage 4 failed: {e}")
+        complete_stage(5, "AI phân tích", f"Lỗi: {e}")
+        print(f"[Digest] Stage 5 failed: {e}")
         analyzed = [{**c, "ai_analysis": None} for c in qualified]
-        stage_counts["stage4_analyzed"] = 0
-        stage_counts["stage4_total"] = len(analyzed)
+        stage_counts["stage5_analyzed"] = 0
+        stage_counts["stage5_total"] = len(analyzed)
 
-    # Stage 5: News enrichment
-    _start_stage(5, "Thu thập tin tức")
-    print("\n[Digest] Stage 5/5: News enrichment...")
+    # Stage 6: News enrichment
+    _start_stage(6, "Thu thập tin tức")
+    print("\n[Digest] Stage 6/6: News enrichment...")
     try:
         def on_news_progress(detail: str) -> None:
-            update_progress(5, "Thu thập tin tức", detail)
+            update_progress(6, "Thu thập tin tức", detail)
 
         enriched = await run_news_fetch(analyzed, on_progress=on_news_progress)
         total_articles = sum(len(c.get("news", [])) for c in enriched)
-        complete_stage(5, "Thu thập tin tức", f"{total_articles} bài viết cho {len(enriched)} mã")
+        complete_stage(6, "Thu thập tin tức", f"{total_articles} bài viết cho {len(enriched)} mã")
     except Exception as e:
-        complete_stage(5, "Thu thập tin tức", f"Lỗi: {e}")
-        print(f"[Digest] Stage 5 failed: {e}")
+        complete_stage(6, "Thu thập tin tức", f"Lỗi: {e}")
+        print(f"[Digest] Stage 6 failed: {e}")
         enriched = [{**c, "news": []} for c in analyzed]
 
     digest = _build_digest(enriched, sector_analysis, datetime.now(), stage_counts)
@@ -156,8 +179,12 @@ async def run_daily_digest() -> dict:
     return digest
 
 
-async def _discover_sectors() -> dict:
-    """Crawl market news and use AI to identify hot sectors."""
+async def _discover_sectors() -> tuple[dict, list[dict]]:
+    """Crawl market news and use AI to identify hot sectors.
+
+    Returns:
+        Tuple of (sector_analysis, headlines) — headlines are kept for Stage 3.
+    """
     api_key = os.getenv("ANTHROPIC_API_KEY", "")
     if not api_key:
         raise ValueError("ANTHROPIC_API_KEY not set")
@@ -175,7 +202,7 @@ async def _discover_sectors() -> dict:
     ai = AIWorkflowService()
     news_data = [{"title": h["title"], "snippet": h.get("snippet", "")} for h in headlines]
     result = await ai.analyze_sectors_from_news(news_data)
-    return result
+    return result, news_data
 
 
 async def _save_to_db(digest: dict) -> None:
@@ -210,6 +237,8 @@ def _auto_summary(c: dict) -> str:
     income = c.get("income_summary", {})
     if income.get("revenue_growth_pct") is not None:
         parts.append(f"Doanh thu YoY={income['revenue_growth_pct']:+.0%}")
+    if c.get("news_selection_reason"):
+        parts.append(c["news_selection_reason"])
     return ", ".join(parts) if parts else "Đang chờ phân tích"
 
 
@@ -290,10 +319,10 @@ def _build_digest(
     sector_count = len(sector_groups)
     summary_parts = [
         f"Phân tích tin tức thị trường → phát hiện {sector_count} ngành nóng.",
-        f"Lọc {len(top_picks)} cổ phiếu tiềm năng qua 5 giai đoạn.",
+        f"Lọc {len(top_picks)} cổ phiếu tiềm năng qua 6 giai đoạn.",
     ]
     if top_picks:
-        summary_parts.append("Top picks được AI phân tích chuyên sâu với bối cảnh ngành.")
+        summary_parts.append("Top picks được AI chọn lọc theo tin tức và phân tích chuyên sâu.")
 
     return {
         "date": now.strftime("%Y-%m-%d"),
