@@ -1,7 +1,10 @@
 import json
+import logging
 import math
 from datetime import date, datetime
 from decimal import Decimal
+
+logger = logging.getLogger(__name__)
 
 from services.claude_client import ClaudeClient
 from services.vnstock_client import VnstockClient
@@ -431,6 +434,13 @@ class AIWorkflowService:
     def __init__(self):
         self.vnstock = VnstockClient()
         self.claude = ClaudeClient()
+        self._fallback = None
+
+    def _get_fallback(self):
+        if self._fallback is None:
+            from services.fallback_scraper import FallbackFinancialScraper
+            self._fallback = FallbackFinancialScraper()
+        return self._fallback
 
     async def analyze_stock(self, symbol: str) -> dict:
         """Full stock analysis: price + financials + news → AI summary."""
@@ -441,10 +451,28 @@ class AIWorkflowService:
         end = datetime.now().strftime("%Y-%m-%d")
         start = (datetime.now() - timedelta(days=365)).strftime("%Y-%m-%d")
 
-        price_data = self.vnstock.get_price_history(symbol, start, end)
-        income = self.vnstock.get_income_statement(symbol, "year")
-        ratios = self.vnstock.get_financial_ratios(symbol)
-        profile = self.vnstock.get_company_profile(symbol)
+        price_data: list[dict] = []
+        income: list[dict] = []
+        ratios: list[dict] = []
+        profile: dict = {}
+
+        try:
+            price_data = self.vnstock.get_price_history(symbol, start, end)
+        except Exception as e:
+            logger.warning("analyze_stock %s: price fetch failed: %s", symbol, e)
+        try:
+            income = self.vnstock.get_income_statement(symbol, "year")
+        except Exception as e:
+            logger.warning("analyze_stock %s: income fetch failed: %s", symbol, e)
+        try:
+            ratios = self.vnstock.get_financial_ratios(symbol)
+        except Exception as e:
+            logger.warning("analyze_stock %s: ratios fetch failed: %s, trying fallback", symbol, e)
+            ratios = await self._get_fallback().get_ratios_with_fallback(symbol)
+        try:
+            profile = self.vnstock.get_company_profile(symbol)
+        except Exception as e:
+            logger.warning("analyze_stock %s: profile fetch failed: %s", symbol, e)
 
         crawler = NewsCrawler()
         try:
@@ -489,12 +517,38 @@ class AIWorkflowService:
         end = datetime.now().strftime("%Y-%m-%d")
         start_1y = (datetime.now() - timedelta(days=365)).strftime("%Y-%m-%d")
 
-        price_data = self.vnstock.get_price_history(symbol, start_1y, end)
-        income = self.vnstock.get_income_statement(symbol, "year")
-        balance = self.vnstock.get_balance_sheet(symbol, "year")
-        cash_flow = self.vnstock.get_cash_flow(symbol, "year")
-        ratios = self.vnstock.get_financial_ratios(symbol)
-        profile = self.vnstock.get_company_profile(symbol)
+        price_data: list[dict] = []
+        income: list[dict] = []
+        balance: list[dict] = []
+        cash_flow: list[dict] = []
+        ratios: list[dict] = []
+        profile: dict = {}
+
+        try:
+            price_data = self.vnstock.get_price_history(symbol, start_1y, end)
+        except Exception as e:
+            logger.warning("full_analysis %s: price fetch failed: %s", symbol, e)
+        try:
+            income = self.vnstock.get_income_statement(symbol, "year")
+        except Exception as e:
+            logger.warning("full_analysis %s: income fetch failed: %s", symbol, e)
+        try:
+            balance = self.vnstock.get_balance_sheet(symbol, "year")
+        except Exception as e:
+            logger.warning("full_analysis %s: balance fetch failed: %s", symbol, e)
+        try:
+            cash_flow = self.vnstock.get_cash_flow(symbol, "year")
+        except Exception as e:
+            logger.warning("full_analysis %s: cashflow fetch failed: %s", symbol, e)
+        try:
+            ratios = self.vnstock.get_financial_ratios(symbol)
+        except Exception as e:
+            logger.warning("full_analysis %s: ratios fetch failed: %s, trying fallback", symbol, e)
+            ratios = await self._get_fallback().get_ratios_with_fallback(symbol)
+        try:
+            profile = self.vnstock.get_company_profile(symbol)
+        except Exception as e:
+            logger.warning("full_analysis %s: profile fetch failed: %s", symbol, e)
 
         crawler = NewsCrawler()
         try:
@@ -538,12 +592,38 @@ class AIWorkflowService:
         end = datetime.now().strftime("%Y-%m-%d")
         start = (datetime.now() - timedelta(days=365 * 3)).strftime("%Y-%m-%d")
 
-        price_data = self.vnstock.get_price_history(symbol, start, end)
-        income = self.vnstock.get_income_statement(symbol, "year")
-        balance = self.vnstock.get_balance_sheet(symbol, "year")
-        cash_flow = self.vnstock.get_cash_flow(symbol, "year")
-        ratios = self.vnstock.get_financial_ratios(symbol)
-        profile = self.vnstock.get_company_profile(symbol)
+        price_data: list[dict] = []
+        income: list[dict] = []
+        balance: list[dict] = []
+        cash_flow: list[dict] = []
+        ratios: list[dict] = []
+        profile: dict = {}
+
+        try:
+            price_data = self.vnstock.get_price_history(symbol, start, end)
+        except Exception as e:
+            logger.warning("deep_research %s: price fetch failed: %s", symbol, e)
+        try:
+            income = self.vnstock.get_income_statement(symbol, "year")
+        except Exception as e:
+            logger.warning("deep_research %s: income fetch failed: %s", symbol, e)
+        try:
+            balance = self.vnstock.get_balance_sheet(symbol, "year")
+        except Exception as e:
+            logger.warning("deep_research %s: balance fetch failed: %s", symbol, e)
+        try:
+            cash_flow = self.vnstock.get_cash_flow(symbol, "year")
+        except Exception as e:
+            logger.warning("deep_research %s: cashflow fetch failed: %s", symbol, e)
+        try:
+            ratios = self.vnstock.get_financial_ratios(symbol)
+        except Exception as e:
+            logger.warning("deep_research %s: ratios fetch failed: %s, trying fallback", symbol, e)
+            ratios = await self._get_fallback().get_ratios_with_fallback(symbol)
+        try:
+            profile = self.vnstock.get_company_profile(symbol)
+        except Exception as e:
+            logger.warning("deep_research %s: profile fetch failed: %s", symbol, e)
 
         data = {
             "symbol": symbol,
@@ -566,14 +646,39 @@ class AIWorkflowService:
 
         end = datetime.now().strftime("%Y-%m-%d")
         start_1y = (datetime.now() - timedelta(days=365)).strftime("%Y-%m-%d")
-        start_3y = (datetime.now() - timedelta(days=365 * 3)).strftime("%Y-%m-%d")
 
-        profile = self.vnstock.get_company_profile(symbol)
-        ratios = self.vnstock.get_financial_ratios(symbol)
-        price_data = self.vnstock.get_price_history(symbol, start_1y, end)
-        income = self.vnstock.get_income_statement(symbol, "year")
-        balance = self.vnstock.get_balance_sheet(symbol, "year")
-        cash_flow = self.vnstock.get_cash_flow(symbol, "year")
+        profile = {}
+        ratios: list[dict] = []
+        price_data: list[dict] = []
+        income: list[dict] = []
+        balance: list[dict] = []
+        cash_flow: list[dict] = []
+
+        try:
+            profile = self.vnstock.get_company_profile(symbol)
+        except Exception as e:
+            logger.warning("deep_research_stream %s: profile fetch failed: %s", symbol, e)
+        try:
+            ratios = self.vnstock.get_financial_ratios(symbol)
+        except Exception as e:
+            logger.warning("deep_research_stream %s: ratios fetch failed: %s, trying fallback", symbol, e)
+            ratios = await self._get_fallback().get_ratios_with_fallback(symbol)
+        try:
+            price_data = self.vnstock.get_price_history(symbol, start_1y, end)
+        except Exception as e:
+            logger.warning("deep_research_stream %s: price fetch failed: %s", symbol, e)
+        try:
+            income = self.vnstock.get_income_statement(symbol, "year")
+        except Exception as e:
+            logger.warning("deep_research_stream %s: income fetch failed: %s", symbol, e)
+        try:
+            balance = self.vnstock.get_balance_sheet(symbol, "year")
+        except Exception as e:
+            logger.warning("deep_research_stream %s: balance fetch failed: %s", symbol, e)
+        try:
+            cash_flow = self.vnstock.get_cash_flow(symbol, "year")
+        except Exception as e:
+            logger.warning("deep_research_stream %s: cashflow fetch failed: %s", symbol, e)
 
         crawler = NewsCrawler()
         try:
@@ -884,8 +989,9 @@ IMPORTANT: Write ENTIRELY in Vietnamese. Use clear markdown. Be decisive in your
             try:
                 ratios = self.vnstock.get_financial_ratios(symbol)
                 time.sleep(1.1)
-            except Exception:
-                ratios = []
+            except Exception as e:
+                logger.warning("portfolio_review %s: ratios fetch failed: %s, trying fallback", symbol, e)
+                ratios = await self._get_fallback().get_ratios_with_fallback(symbol)
 
             try:
                 end = datetime.now().strftime("%Y-%m-%d")

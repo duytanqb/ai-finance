@@ -1,6 +1,10 @@
+import logging
+
 from fastapi import APIRouter, HTTPException, Query
 
 from services.vnstock_client import VnstockClient
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 client = VnstockClient()
@@ -48,4 +52,13 @@ async def get_financial_ratios(symbol: str):
         data = client.get_financial_ratios(symbol)
         return {"symbol": symbol, "data": data}
     except Exception as e:
+        logger.warning("VCI ratios failed for %s: %s, trying fallback", symbol, e)
+        try:
+            from services.fallback_scraper import FallbackFinancialScraper
+            scraper = FallbackFinancialScraper()
+            data = await scraper.get_ratios_with_fallback(symbol)
+            if data:
+                return {"symbol": symbol, "data": data}
+        except Exception as fallback_err:
+            logger.warning("Fallback also failed for %s: %s", symbol, fallback_err)
         raise HTTPException(status_code=500, detail=str(e))

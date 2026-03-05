@@ -1,9 +1,11 @@
 "use client";
 
 import {
+  AlertTriangle,
   ArrowDownRight,
   ArrowRight,
   ArrowUpRight,
+  BookOpen,
   Check,
   Clock,
   Loader2,
@@ -111,6 +113,10 @@ export default function PortfolioPage() {
   const [aiReviewAge, setAiReviewAge] = useState<string | null>(null);
   const [reviewing, setReviewing] = useState(false);
   const [bgResearchSymbols, setBgResearchSymbols] = useState<string[]>([]);
+  const [staleResearchSymbols, setStaleResearchSymbols] = useState<string[]>(
+    [],
+  );
+  const [dismissedResearchAlert, setDismissedResearchAlert] = useState(false);
 
   const [formSymbol, setFormSymbol] = useState("");
   const [formQuantity, setFormQuantity] = useState("");
@@ -200,6 +206,33 @@ export default function PortfolioPage() {
       }));
 
       setHoldings(enriched);
+
+      const SEVEN_DAYS = 7 * 24 * 60 * 60 * 1000;
+      const stale: string[] = [];
+      await Promise.allSettled(
+        symbols.map(async (sym) => {
+          try {
+            const res = await fetch(
+              `/api/reports?symbol=${sym}&type=deep_research`,
+            );
+            if (!res.ok) {
+              stale.push(sym);
+              return;
+            }
+            const reports = await res.json();
+            if (
+              !Array.isArray(reports) ||
+              reports.length === 0 ||
+              Date.now() - new Date(reports[0].createdAt).getTime() > SEVEN_DAYS
+            ) {
+              stale.push(sym);
+            }
+          } catch {
+            stale.push(sym);
+          }
+        }),
+      );
+      setStaleResearchSymbols(stale);
     } catch {
       setError("Failed to load portfolio");
     } finally {
@@ -460,6 +493,46 @@ export default function PortfolioPage() {
           </button>
         </div>
       )}
+
+      {/* Deep Research Alert */}
+      {staleResearchSymbols.length > 0 &&
+        !dismissedResearchAlert &&
+        holdings.length > 0 && (
+          <div className="rounded-xl border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/30 p-4">
+            <div className="flex items-start gap-3">
+              <AlertTriangle className="h-5 w-5 text-amber-500 shrink-0 mt-0.5" />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-amber-800 dark:text-amber-300">
+                  {staleResearchSymbols.length} cổ phiếu chưa có dữ liệu nghiên
+                  cứu hoặc đã cũ (&gt;7 ngày)
+                </p>
+                <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
+                  Chạy Deep Research trước khi AI Review để kết quả chính xác
+                  hơn.
+                </p>
+                <div className="flex flex-wrap gap-2 mt-3">
+                  {staleResearchSymbols.map((sym) => (
+                    <Link
+                      key={sym}
+                      href={`/stocks/${sym}`}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-300 hover:bg-amber-200 dark:hover:bg-amber-900/60 transition-colors"
+                    >
+                      <BookOpen className="h-3 w-3" />
+                      {sym}
+                    </Link>
+                  ))}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDismissedResearchAlert(true)}
+                className="p-1 rounded hover:bg-amber-100 dark:hover:bg-amber-900/40 text-amber-400 hover:text-amber-600 shrink-0"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+        )}
 
       {/* Add Holding Form */}
       {showAddForm && (
