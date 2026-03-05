@@ -774,11 +774,10 @@ export default function StockDetailPage() {
                       <div className="prose prose-sm dark:prose-invert max-w-none text-zinc-600 dark:text-zinc-400 whitespace-pre-wrap">
                         {s.content}
                       </div>
-                      {sectionSources(s.section, symbol) != null && (
-                        <SourceTags
-                          sources={sectionSources(s.section, symbol)!}
-                        />
-                      )}
+                      {(() => {
+                        const src = sectionSources(s.section, symbol);
+                        return src ? <SourceTags sources={src} /> : null;
+                      })()}
                     </div>
                   )}
                 </div>

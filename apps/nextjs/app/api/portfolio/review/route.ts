@@ -19,7 +19,7 @@ export async function POST(request: Request) {
 
   try {
     const body = await request.json();
-    const holdings = body.holdings as Array<Record<string, unknown>>;
+    const holdings = body.holdings as Record<string, unknown>[];
 
     if (!Array.isArray(holdings) || holdings.length === 0) {
       return NextResponse.json(

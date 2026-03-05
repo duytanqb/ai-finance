@@ -88,12 +88,16 @@ function computeMA(
   for (let i = period - 1; i < candles.length; i++) {
     let sum = 0;
     for (let j = i - period + 1; j <= i; j++) {
-      sum += candles[j]!.close;
+      const c = candles[j];
+      if (c) sum += c.close;
     }
-    result.push({
-      time: toChartTime(candles[i]!.time),
-      value: toPriceVND(sum / period),
-    });
+    const candle = candles[i];
+    if (candle) {
+      result.push({
+        time: toChartTime(candle.time),
+        value: toPriceVND(sum / period),
+      });
+    }
   }
   return result;
 }
