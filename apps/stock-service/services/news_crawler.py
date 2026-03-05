@@ -116,11 +116,13 @@ class NewsCrawler:
         return _deduplicate(all_articles)[:limit]
 
     async def crawl_market_news(self, limit: int = 20) -> list[dict]:
-        """Fetch general market news from CafeF + VnExpress + Vietstock in parallel."""
+        """Fetch general market news from CafeF + VnExpress + Vietstock + VnEconomy + SSI in parallel."""
         results = await asyncio.gather(
             self._crawl_cafef_market(limit),
             self._crawl_vnexpress_market(limit),
             self._crawl_vietstock_market(limit),
+            self._crawl_vneconomy_market(limit),
+            self._crawl_ssi_market(limit),
             return_exceptions=True,
         )
 
@@ -139,7 +141,7 @@ class NewsCrawler:
             async with httpx.AsyncClient(
                 timeout=self.timeout, headers=self.headers
             ) as client:
-                url = f"https://cafef.vn/tim-kiem.htm?keywords={symbol}"
+                url = f"https://cafef.vn/co-phieu-{symbol.lower()}.html"
                 resp = await client.get(url)
                 resp.raise_for_status()
 
@@ -397,4 +399,102 @@ class NewsCrawler:
                     })
         except Exception as e:
             print(f"[NewsCrawler] Error crawling Vietstock market news: {e}")
+        return results
+
+    # ── VnEconomy ─────────────────────────────────────────────
+
+    async def _crawl_vneconomy_market(self, limit: int) -> list[dict]:
+        results = []
+        try:
+            async with httpx.AsyncClient(
+                timeout=self.timeout, headers=self.headers
+            ) as client:
+                url = "https://vneconomy.vn/chung-khoan.htm"
+                resp = await client.get(url)
+                resp.raise_for_status()
+
+                soup = BeautifulSoup(resp.text, "html.parser")
+                items = soup.select(".featured-row_item")[:limit * 2]
+
+                for item in items:
+                    title_container = item.select_one(".featured-row_item__title")
+                    if not title_container:
+                        continue
+
+                    h3 = title_container.select_one("h3")
+                    if not h3:
+                        continue
+
+                    title = h3.get("title", "") or h3.get_text(strip=True)
+                    if not title:
+                        continue
+
+                    a = title_container.select_one("a") or item.select_one("a[href$='.htm']")
+                    href = a.get("href", "") if a else ""
+                    if not href:
+                        link_layer = item.select_one("a.link-layer-imt")
+                        href = link_layer.get("href", "") if link_layer else ""
+                    if href and not href.startswith("http"):
+                        href = f"https://vneconomy.vn{href}"
+
+                    snippet_el = title_container.select_one("p")
+                    snippet = snippet_el.get_text(strip=True) if snippet_el else ""
+
+                    results.append({
+                        "title": title,
+                        "url": href,
+                        "source": "VnEconomy",
+                        "published_at": "",
+                        "snippet": snippet[:300],
+                    })
+        except Exception as e:
+            print(f"[NewsCrawler] Error crawling VnEconomy market news: {e}")
+        return results
+
+    # ── SSI Research ──────────────────────────────────────────
+
+    async def _crawl_ssi_market(self, limit: int) -> list[dict]:
+        results = []
+        try:
+            async with httpx.AsyncClient(
+                timeout=self.timeout, headers=self.headers
+            ) as client:
+                url = "https://www.ssi.com.vn/khach-hang-ca-nhan/ban-tin-thi-truong"
+                resp = await client.get(url, follow_redirects=True)
+                resp.raise_for_status()
+
+                soup = BeautifulSoup(resp.text, "html.parser")
+                items = soup.select(".chart__content__item")[:limit * 2]
+
+                for item in items:
+                    title_el = item.select_one("a.titlePost")
+                    if not title_el:
+                        continue
+
+                    title = title_el.get_text(strip=True)
+                    if not title:
+                        continue
+
+                    desc_el = item.select_one(".chart__content__item__desc__info")
+                    snippet = desc_el.get_text(strip=True) if desc_el else ""
+
+                    time_el = item.select_one(".chart__content__item__time")
+                    published_at = ""
+                    if time_el:
+                        raw = time_el.get_text(strip=True)
+                        date_match = re.search(r"\d{2}/\d{2}/\d{4}", raw)
+                        published_at = date_match.group(0) if date_match else raw
+
+                    if published_at and not _is_recent(published_at):
+                        continue
+
+                    results.append({
+                        "title": title,
+                        "url": "https://www.ssi.com.vn/khach-hang-ca-nhan/ban-tin-thi-truong",
+                        "source": "SSI Research",
+                        "published_at": published_at,
+                        "snippet": snippet[:300],
+                    })
+        except Exception as e:
+            print(f"[NewsCrawler] Error crawling SSI market news: {e}")
         return results

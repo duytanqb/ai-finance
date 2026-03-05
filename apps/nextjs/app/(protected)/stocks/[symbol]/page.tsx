@@ -120,6 +120,60 @@ const INITIAL_SECTIONS: ResearchSection[] = [
   },
 ];
 
+function stockNewsSources(sym: string): SourceItem[] {
+  return [
+    {
+      label: "CafeF",
+      url: `https://cafef.vn/co-phieu-${sym.toLowerCase()}.html`,
+    },
+    {
+      label: "VnExpress",
+      url: `https://timkiem.vnexpress.net/?q=${sym}&cate_code=kinhdoanh`,
+    },
+    {
+      label: "Vietstock",
+      url: `https://finance.vietstock.vn/${sym}/tai-chinh.htm`,
+    },
+    {
+      label: "VnEconomy",
+      url: "https://vneconomy.vn/chung-khoan.htm",
+    },
+    {
+      label: "SSI Research",
+      url: "https://www.ssi.com.vn/khach-hang-ca-nhan/ban-tin-thi-truong",
+    },
+  ];
+}
+
+function sectionSources(
+  section: string,
+  sym: string,
+): SourceItem[] | undefined {
+  const news = stockNewsSources(sym);
+  const map: Record<string, SourceItem[]> = {
+    basic_analysis: [
+      { label: "Chỉ số tài chính: VCI" },
+      { label: "Hồ sơ công ty: VCI" },
+      { label: "AI: Claude Sonnet" },
+    ],
+    candle_chart: [
+      { label: "Giá OHLCV: DNSE" },
+      { label: "High/Low 52 tuần: DNSE" },
+      { label: "AI: Claude Sonnet" },
+    ],
+    company_analysis: [
+      { label: "BCTC: VCI (Lãi lỗ · Cân đối · Dòng tiền)" },
+      { label: "AI: Claude Sonnet" },
+    ],
+    summary: [
+      { label: "Tổng hợp 3 phần trên" },
+      ...news,
+      { label: "AI: Claude Sonnet" },
+    ],
+  };
+  return map[section];
+}
+
 export default function StockDetailPage() {
   const params = useParams();
   const symbol = (params.symbol as string)?.toUpperCase() || "";
@@ -609,6 +663,14 @@ export default function StockDetailPage() {
                   )}
                 </div>
               )}
+              <SourceTags
+                sources={[
+                  { label: "Giá: DNSE" },
+                  { label: "Tài chính: VCI" },
+                  ...stockNewsSources(symbol),
+                  { label: "AI: Claude Sonnet" },
+                ]}
+              />
             </div>
           )}
         </div>
@@ -712,6 +774,11 @@ export default function StockDetailPage() {
                       <div className="prose prose-sm dark:prose-invert max-w-none text-zinc-600 dark:text-zinc-400 whitespace-pre-wrap">
                         {s.content}
                       </div>
+                      {sectionSources(s.section, symbol) != null && (
+                        <SourceTags
+                          sources={sectionSources(s.section, symbol)!}
+                        />
+                      )}
                     </div>
                   )}
                 </div>
@@ -739,6 +806,41 @@ export default function StockDetailPage() {
             {researchResult}
           </div>
         </div>
+      )}
+    </div>
+  );
+}
+
+interface SourceItem {
+  label: string;
+  url?: string;
+}
+
+function SourceTags({ sources }: { sources: SourceItem[] }) {
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 mt-3 pt-3 border-t border-zinc-100 dark:border-zinc-800">
+      <span className="text-[10px] text-zinc-400 uppercase tracking-wider">
+        Nguồn
+      </span>
+      {sources.map((s) =>
+        s.url ? (
+          <a
+            key={s.label}
+            href={s.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors"
+          >
+            {s.label}
+          </a>
+        ) : (
+          <span
+            key={s.label}
+            className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400"
+          >
+            {s.label}
+          </span>
+        ),
       )}
     </div>
   );

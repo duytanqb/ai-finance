@@ -145,6 +145,52 @@ function formatDate(isoString: string): string {
 const POLL_INTERVAL = 8000;
 const MAX_POLL_TIME = 20 * 60 * 1000;
 
+interface SourceItem {
+  label: string;
+  url?: string;
+}
+
+function SourceTags({ sources }: { sources: SourceItem[] }) {
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 mt-3 pt-3 border-t border-zinc-100 dark:border-zinc-800">
+      <span className="text-[10px] text-zinc-400 uppercase tracking-wider">
+        Nguồn
+      </span>
+      {sources.map((s) =>
+        s.url ? (
+          <a
+            key={s.label}
+            href={s.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors"
+          >
+            {s.label}
+          </a>
+        ) : (
+          <span
+            key={s.label}
+            className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400"
+          >
+            {s.label}
+          </span>
+        ),
+      )}
+    </div>
+  );
+}
+
+const NEWS_SOURCES: SourceItem[] = [
+  { label: "CafeF", url: "https://cafef.vn/thi-truong-chung-khoan.chn" },
+  { label: "VnExpress", url: "https://vnexpress.net/kinh-doanh/chung-khoan" },
+  { label: "Vietstock", url: "https://vietstock.vn/chung-khoan.htm" },
+  { label: "VnEconomy", url: "https://vneconomy.vn/chung-khoan.htm" },
+  {
+    label: "SSI Research",
+    url: "https://www.ssi.com.vn/khach-hang-ca-nhan/ban-tin-thi-truong",
+  },
+];
+
 function StockCard({ pick }: { pick: MarketPick }) {
   return (
     <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-5">
@@ -323,6 +369,19 @@ function StockCard({ pick }: { pick: MarketPick }) {
           </div>
         </div>
       )}
+
+      {/* Sources */}
+      <SourceTags
+        sources={
+          pick.confidence > 0
+            ? [
+                { label: "Tài chính: VCI" },
+                ...NEWS_SOURCES,
+                { label: "AI: Claude Sonnet" },
+              ]
+            : [{ label: "Tài chính: VCI" }, { label: "AI: Claude Sonnet" }]
+        }
+      />
 
       {/* Analyze Button */}
       <div className="mt-4 pt-3 border-t border-zinc-100 dark:border-zinc-800 flex justify-end">
@@ -745,6 +804,9 @@ export default function MarketWatchPage() {
                 {digest.total_scanned} cổ phiếu được quét
               </p>
             )}
+            <SourceTags
+              sources={[...NEWS_SOURCES, { label: "AI: Claude Sonnet" }]}
+            />
           </div>
 
           {/* Sector Overview Cards */}

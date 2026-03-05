@@ -5,9 +5,11 @@ import {
   ArrowRight,
   ArrowUpRight,
   Check,
+  Clock,
   Loader2,
   Pencil,
   Plus,
+  RefreshCw,
   Sparkles,
   Trash2,
   X,
@@ -80,6 +82,15 @@ function formatVND(value: number): string {
   return value.toLocaleString("vi-VN");
 }
 
+function formatAge(dateStr: string): string {
+  const diffMs = Date.now() - new Date(dateStr).getTime();
+  const hours = Math.floor(diffMs / (1000 * 60 * 60));
+  if (hours < 1) return "vừa xong";
+  if (hours < 24) return `${hours}h trước`;
+  const days = Math.floor(hours / 24);
+  return `${days} ngày trước`;
+}
+
 export default function PortfolioPage() {
   const [holdings, setHoldings] = useState<Holding[]>([]);
   const [loading, setLoading] = useState(true);
@@ -97,7 +108,9 @@ export default function PortfolioPage() {
   const [saving, setSaving] = useState(false);
 
   const [aiReview, setAiReview] = useState<AIReviewResult | null>(null);
+  const [aiReviewAge, setAiReviewAge] = useState<string | null>(null);
   const [reviewing, setReviewing] = useState(false);
+  const [bgResearchSymbols, setBgResearchSymbols] = useState<string[]>([]);
 
   const [formSymbol, setFormSymbol] = useState("");
   const [formQuantity, setFormQuantity] = useState("");
@@ -108,10 +121,21 @@ export default function PortfolioPage() {
 
   const fetchHoldings = useCallback(async () => {
     try {
-      const res = await fetch("/api/portfolio");
+      const [res, reviewRes] = await Promise.all([
+        fetch("/api/portfolio"),
+        fetch("/api/reports?symbol=PORTFOLIO&type=portfolio_review"),
+      ]);
       if (!res.ok) throw new Error("Failed to fetch portfolio");
       const data = await res.json();
       const holdingsData: Holding[] = data.holdings || [];
+
+      if (reviewRes.ok) {
+        const reports = await reviewRes.json();
+        if (Array.isArray(reports) && reports.length > 0) {
+          setAiReview(reports[0].result as AIReviewResult);
+          setAiReviewAge(reports[0].createdAt);
+        }
+      }
 
       const symbols = holdingsData.map((h) => h.symbol);
       const priceMap: Record<
@@ -316,7 +340,25 @@ export default function PortfolioPage() {
 
       if (!res.ok) throw new Error("AI review failed");
       const data = await res.json();
-      setAiReview(data.review);
+      const review = data.review;
+      setAiReview(review);
+      setAiReviewAge(new Date().toISOString());
+      setBgResearchSymbols(data.backgroundResearchSymbols || []);
+
+      try {
+        await fetch("/api/reports", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            symbol: "PORTFOLIO",
+            reportType: "portfolio_review",
+            result: review,
+            model: "sonnet",
+          }),
+        });
+      } catch {
+        // best-effort save
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to get AI review");
     } finally {
@@ -376,11 +418,23 @@ export default function PortfolioPage() {
           >
             {reviewing ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : aiReviewAge ? (
+              <RefreshCw className="h-3.5 w-3.5" />
             ) : (
               <Sparkles className="h-3.5 w-3.5" />
             )}
-            {reviewing ? "Đang phân tích..." : "AI Review"}
+            {reviewing
+              ? "Đang phân tích..."
+              : aiReviewAge
+                ? "Re-review"
+                : "AI Review"}
           </button>
+          {aiReviewAge && !reviewing && (
+            <span className="inline-flex items-center gap-1 text-xs text-zinc-400">
+              <Clock className="h-3 w-3" />
+              {formatAge(aiReviewAge)}
+            </span>
+          )}
           <button
             type="button"
             onClick={() => setShowAddForm(true)}
@@ -608,6 +662,16 @@ export default function PortfolioPage() {
               </div>
             ))}
           </div>
+          {bgResearchSymbols.length > 0 && (
+            <div className="rounded-lg bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 px-3 py-2 flex items-center gap-2">
+              <Loader2 className="h-3.5 w-3.5 animate-spin text-blue-500 shrink-0" />
+              <p className="text-xs text-blue-600 dark:text-blue-400">
+                Đang chạy Deep Research cho {bgResearchSymbols.length} mã (
+                {bgResearchSymbols.join(", ")}) — review tiếp theo sẽ chính xác
+                hơn.
+              </p>
+            </div>
+          )}
         </div>
       )}
 

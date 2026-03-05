@@ -80,14 +80,36 @@ function getLookbackSeconds(interval: Interval): number {
   }
 }
 
+function computeMA(
+  candles: OhlcCandle[],
+  period: number,
+): { time: Time; value: number }[] {
+  const result: { time: Time; value: number }[] = [];
+  for (let i = period - 1; i < candles.length; i++) {
+    let sum = 0;
+    for (let j = i - period + 1; j <= i; j++) {
+      sum += candles[j]!.close;
+    }
+    result.push({
+      time: toChartTime(candles[i]!.time),
+      value: toPriceVND(sum / period),
+    });
+  }
+  return result;
+}
+
 function PriceChartInner({ symbol }: PriceChartProps) {
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<SeriesType> | null>(null);
   const volumeSeriesRef = useRef<ISeriesApi<"Histogram"> | null>(null);
+  const ma10SeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
+  const ma50SeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
   const { resolvedTheme } = useTheme();
   const [interval, setInterval] = useState<Interval>("1D");
   const [chartStyle, setChartStyle] = useState<ChartStyle>("candle");
+  const [showMA10, setShowMA10] = useState(true);
+  const [showMA50, setShowMA50] = useState(true);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -122,6 +144,8 @@ function PriceChartInner({ symbol }: PriceChartProps) {
       chartRef.current = null;
       seriesRef.current = null;
       volumeSeriesRef.current = null;
+      ma10SeriesRef.current = null;
+      ma50SeriesRef.current = null;
     }
 
     const chart = createChart(container, {
@@ -194,6 +218,27 @@ function PriceChartInner({ symbol }: PriceChartProps) {
     });
     volumeSeriesRef.current = volumeSeries;
 
+    if (showMA10) {
+      ma10SeriesRef.current = chart.addSeries(LineSeries, {
+        color: "#f59e0b",
+        lineWidth: 1,
+        crosshairMarkerVisible: false,
+        priceLineVisible: false,
+        lastValueVisible: false,
+        title: "MA10",
+      });
+    }
+    if (showMA50) {
+      ma50SeriesRef.current = chart.addSeries(LineSeries, {
+        color: "#8b5cf6",
+        lineWidth: 1,
+        crosshairMarkerVisible: false,
+        priceLineVisible: false,
+        lastValueVisible: false,
+        title: "MA50",
+      });
+    }
+
     setLoading(true);
     setError(null);
     fetchData(interval)
@@ -237,6 +282,13 @@ function PriceChartInner({ symbol }: PriceChartProps) {
         }));
         volumeSeriesRef.current?.setData(volData);
 
+        if (showMA10) {
+          ma10SeriesRef.current?.setData(computeMA(candles, 10));
+        }
+        if (showMA50) {
+          ma50SeriesRef.current?.setData(computeMA(candles, 50));
+        }
+
         chart.timeScale().fitContent();
         setLoading(false);
       })
@@ -260,9 +312,11 @@ function PriceChartInner({ symbol }: PriceChartProps) {
         chartRef.current = null;
         seriesRef.current = null;
         volumeSeriesRef.current = null;
+        ma10SeriesRef.current = null;
+        ma50SeriesRef.current = null;
       }
     };
-  }, [interval, chartStyle, isDark, fetchData]);
+  }, [interval, chartStyle, isDark, fetchData, showMA10, showMA50]);
 
   return (
     <div className="space-y-3">
@@ -299,6 +353,31 @@ function PriceChartInner({ symbol }: PriceChartProps) {
               {i.label}
             </button>
           ))}
+        </div>
+
+        <div className="flex rounded-lg border border-zinc-200 dark:border-zinc-700 overflow-hidden text-xs">
+          <button
+            type="button"
+            onClick={() => setShowMA10((v) => !v)}
+            className={`px-2 py-1 transition-colors ${
+              showMA10
+                ? "bg-amber-500 text-white"
+                : "text-zinc-600 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-800"
+            }`}
+          >
+            MA10
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowMA50((v) => !v)}
+            className={`px-2 py-1 transition-colors ${
+              showMA50
+                ? "bg-violet-500 text-white"
+                : "text-zinc-600 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-800"
+            }`}
+          >
+            MA50
+          </button>
         </div>
 
         <span className="text-[10px] text-zinc-400 ml-auto">DNSE</span>

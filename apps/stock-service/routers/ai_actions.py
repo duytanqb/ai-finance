@@ -1,5 +1,8 @@
+import asyncio
 import json
+import os
 
+import httpx
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 
@@ -10,6 +13,51 @@ router = APIRouter()
 
 def _get_ai_service() -> AIWorkflowService:
     return AIWorkflowService()
+
+
+async def _run_deep_research_bg(symbol: str) -> None:
+    """Run deep research in background and save result via callback to Next.js."""
+    try:
+        service = _get_ai_service()
+        sections: list[dict] = []
+        async for chunk in service.deep_research_stream(symbol):
+            if chunk.get("status") == "completed" and chunk.get("content"):
+                sections.append(chunk)
+
+        if not sections:
+            print(f"[BG Deep Research] {symbol}: no sections produced")
+            return
+
+        report_text = "\n\n---\n\n".join(
+            f"## {s['title']}\n\n{s['content']}" for s in sections
+        )
+        result = {
+            "report": report_text,
+            "sections": [
+                {
+                    "section": s["section"],
+                    "title": s["title"],
+                    "content": s["content"],
+                    "status": "completed",
+                }
+                for s in sections
+            ],
+        }
+
+        app_url = os.environ.get("APP_URL", "http://localhost:3000")
+        async with httpx.AsyncClient(timeout=10) as client:
+            await client.post(
+                f"{app_url}/api/reports",
+                json={
+                    "symbol": symbol.upper(),
+                    "reportType": "deep_research",
+                    "result": result,
+                    "model": "sonnet",
+                },
+            )
+        print(f"[BG Deep Research] {symbol}: saved to DB")
+    except Exception as e:
+        print(f"[BG Deep Research] {symbol} failed: {e}")
 
 
 @router.post("/analyze/{symbol}")
@@ -46,6 +94,13 @@ async def compare_stocks(symbols: list[str]):
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/deep-research-bg/{symbol}")
+async def deep_research_background(symbol: str):
+    """Trigger deep research in background — saves result to DB via callback."""
+    asyncio.create_task(_run_deep_research_bg(symbol.upper()))
+    return {"status": "started", "symbol": symbol.upper()}
 
 
 @router.post("/portfolio-review")

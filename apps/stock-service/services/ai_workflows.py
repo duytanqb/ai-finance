@@ -7,6 +7,67 @@ from services.claude_client import ClaudeClient
 from services.vnstock_client import VnstockClient
 
 
+def _compute_technical_signals(price_data: list[dict]) -> dict:
+    """Compute MA and technical signals from OHLCV price data."""
+    if not price_data:
+        return {}
+    closes = [p["close"] for p in price_data]
+    n = len(closes)
+
+    def _ma(period: int) -> float | None:
+        if n < period:
+            return None
+        return round(sum(closes[-period:]) / period, 2)
+
+    ma10 = _ma(10)
+    ma20 = _ma(20)
+    ma50 = _ma(50)
+    ma200 = _ma(200)
+    current = closes[-1] if closes else None
+
+    signals = {
+        "current_price": current,
+        "ma10": ma10,
+        "ma20": ma20,
+        "ma50": ma50,
+        "ma200": ma200,
+    }
+
+    if current and ma50:
+        signals["price_vs_ma50"] = "above" if current > ma50 else "below"
+        signals["ma50_distance_pct"] = round((current - ma50) / ma50 * 100, 2)
+    if current and ma200:
+        signals["price_vs_ma200"] = "above" if current > ma200 else "below"
+    if ma10 and ma50:
+        signals["ma10_vs_ma50"] = "golden_cross" if ma10 > ma50 else "death_cross"
+    if ma50 and ma200:
+        signals["ma50_vs_ma200"] = "golden_cross" if ma50 > ma200 else "death_cross"
+
+    if n >= 14:
+        gains, losses = [], []
+        for i in range(n - 14, n):
+            diff = closes[i] - closes[i - 1]
+            gains.append(max(diff, 0))
+            losses.append(max(-diff, 0))
+        avg_gain = sum(gains) / 14
+        avg_loss = sum(losses) / 14
+        if avg_loss > 0:
+            rs = avg_gain / avg_loss
+            signals["rsi_14"] = round(100 - (100 / (1 + rs)), 1)
+        else:
+            signals["rsi_14"] = 100.0
+
+    if n >= 5:
+        recent_vol = [p["volume"] for p in price_data[-5:]]
+        avg_vol_5 = sum(recent_vol) / 5
+        if n >= 20:
+            avg_vol_20 = sum(p["volume"] for p in price_data[-20:]) / 20
+            if avg_vol_20 > 0:
+                signals["volume_ratio_5d_vs_20d"] = round(avg_vol_5 / avg_vol_20, 2)
+
+    return signals
+
+
 def _sanitize(obj):
     """Convert non-JSON-serializable keys/values to JSON-safe types."""
     if isinstance(obj, dict):
@@ -86,38 +147,46 @@ Include:
 
 Be thorough and data-driven. Cite specific numbers from the provided data."""
 
-PORTFOLIO_REVIEW_PROMPT = """You are a Vietnam stock market portfolio advisor. Review each holding and provide actionable suggestions including stop-loss and take-profit levels.
+PORTFOLIO_REVIEW_PROMPT = """You are a Vietnam stock market portfolio advisor.
+Review each holding and provide actionable suggestions.
 
-Each holding includes: symbol, quantity, averagePrice, currentPrice, pnlPercent, horizon, stopLoss, takeProfit, and financial ratios.
+Each holding includes:
+- Position: symbol, quantity, averagePrice, currentPrice, pnlPercent, horizon, stopLoss, takeProfit
+- Financial ratios: P/E, ROE, debt levels (latest period)
+- Technical signals: MA10/MA20/MA50/MA200 values, RSI-14, volume ratio, cross signals (golden_cross/death_cross)
+- Deep research summary (research_summary field, if available): comprehensive fundamental + technical + company analysis
 
 For each holding, analyze:
-- P&L performance vs investment horizon (nếu lỗ > 15% ở kỳ hạn ngắn → cân nhắc cắt lỗ)
-- Financial health from ratios (P/E, ROE, debt levels)
+- P&L performance vs investment horizon (lỗ > 15% ngắn hạn → cắt lỗ)
+- Technical signals: price vs MA50 (above=bullish, below=bearish), RSI (>70 overbought, <30 oversold), volume trends
+- MA cross signals: golden_cross = bullish momentum, death_cross = bearish momentum
+- Financial health from ratios AND deep research (if provided)
 - Whether the holding aligns with the chosen horizon
 - Risk/reward at current price level
-- Appropriate stop-loss level (typically 5-10% below current price for short-term, 10-20% for long-term)
-- Appropriate take-profit level based on fundamentals and horizon
 
 Decision framework:
-- SELL: Lỗ nặng + cơ bản xấu, hoặc đã đạt mục tiêu lợi nhuận, hoặc cơ bản suy giảm nghiêm trọng
-- HOLD: Cơ bản tốt + chưa đạt mục tiêu, hoặc đang trong vùng tích lũy hợp lý
-- ADD_MORE: Giá đang rẻ + cơ bản mạnh + phù hợp kỳ hạn đầu tư
+- SELL: Lỗ nặng + cơ bản xấu, hoặc đã đạt TP, hoặc death_cross + RSI yếu + cơ bản xấu
+- HOLD: Cơ bản tốt + chưa đạt mục tiêu, hoặc tín hiệu kỹ thuật trung tính
+- ADD_MORE: Giá dưới MA50 + cơ bản mạnh + golden_cross gần đây + phù hợp kỳ hạn
 
-IMPORTANT: All text MUST be written in Vietnamese. Be specific with numbers.
+If research_summary is available for a holding, USE IT for deeper reasoning about company quality and outlook.
+If not available, base analysis on ratios and technical signals only.
 
-Respond in JSON format:
+IMPORTANT: All text MUST be written in Vietnamese. Be specific with numbers and price levels.
+
+Respond in JSON:
 {
   "holdings": [
     {
       "symbol": "XXX",
       "action": "HOLD" | "SELL" | "ADD_MORE",
-      "reasoning": "2-3 câu giải thích cụ thể bằng tiếng Việt, nêu rõ lý do dựa trên dữ liệu",
+      "reasoning": "3-4 câu giải thích dựa trên vị thế, kỹ thuật, và deep research (nếu có)",
       "urgency": "low|medium|high",
       "suggested_stop_loss": number or null,
       "suggested_take_profit": number or null
     }
   ],
-  "portfolio_summary": "đánh giá tổng quan danh mục 3-4 câu bằng tiếng Việt: phân bổ tài sản, rủi ro chung, khuyến nghị cải thiện"
+  "portfolio_summary": "đánh giá tổng quan danh mục 3-4 câu: phân bổ, rủi ro, tín hiệu kỹ thuật chung, khuyến nghị"
 }"""
 
 
@@ -386,6 +455,7 @@ class AIWorkflowService:
         data = {
             "symbol": symbol,
             "profile": profile,
+            "technical_signals": _compute_technical_signals(price_data),
             "price_history_last_30": price_data[-30:] if len(price_data) > 30 else price_data,
             "price_52w_high": max(p["high"] for p in price_data) if price_data else None,
             "price_52w_low": min(p["low"] for p in price_data) if price_data else None,
@@ -435,6 +505,7 @@ class AIWorkflowService:
         data = {
             "symbol": symbol,
             "profile": profile,
+            "technical_signals": _compute_technical_signals(price_data),
             "price_history_60d": price_data[-60:] if len(price_data) > 60 else price_data,
             "price_52w_high": max(p["high"] for p in price_data) if price_data else None,
             "price_52w_low": min(p["low"] for p in price_data) if price_data else None,
@@ -529,6 +600,7 @@ IMPORTANT: Write ENTIRELY in Vietnamese. Use clear markdown with headers. Be con
         yield {"step": 2, "total": 4, "section": "candle_chart", "title": "Phân tích biểu đồ nến", "status": "in_progress"}
         chart_data = _sanitize({
             "symbol": symbol,
+            "technical_signals": _compute_technical_signals(price_data),
             "price_history_recent": price_data[-60:] if len(price_data) > 60 else price_data,
             "price_52w_high": max(p["high"] for p in price_data) if price_data else None,
             "price_52w_low": min(p["low"] for p in price_data) if price_data else None,
@@ -804,6 +876,7 @@ IMPORTANT: Write ENTIRELY in Vietnamese. Use clear markdown. Be decisive in your
     async def portfolio_review(self, holdings: list[dict]) -> dict:
         """Review portfolio holdings with AI suggestions."""
         import time
+        from datetime import datetime, timedelta
 
         enriched = []
         for h in holdings:
@@ -813,7 +886,21 @@ IMPORTANT: Write ENTIRELY in Vietnamese. Use clear markdown. Be decisive in your
                 time.sleep(1.1)
             except Exception:
                 ratios = []
-            enriched.append({**h, "ratios": ratios[:1] if ratios else []})
+
+            try:
+                end = datetime.now().strftime("%Y-%m-%d")
+                start = (datetime.now() - timedelta(days=365)).strftime("%Y-%m-%d")
+                price_data = self.vnstock.get_price_history(symbol, start, end)
+                signals = _compute_technical_signals(price_data)
+            except Exception:
+                signals = {}
+
+            entry = {
+                **h,
+                "ratios": ratios[:1] if ratios else [],
+                "technical_signals": signals,
+            }
+            enriched.append(entry)
 
         analysis = await self.claude.analyze(PORTFOLIO_REVIEW_PROMPT, _sanitize({"holdings": enriched}))
 
