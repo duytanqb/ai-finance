@@ -104,9 +104,28 @@ def _sanitize(obj):
         pass
     return obj
 
+
+def _normalize_ratios_to_vnd(ratios: list[dict]) -> list[dict]:
+    """Convert per-share metrics from 1000 VND to VND for AI consumption.
+
+    VCI and CafeF return EPS and BVPS in 1000 VND units (e.g., EPS=2.0 means 2,000 VND).
+    Since prices are already in VND, normalize per-share values to match.
+    """
+    result = []
+    for r in ratios:
+        normalized = dict(r)
+        for field in ("earningPerShare", "bookValuePerShare"):
+            val = normalized.get(field)
+            if val is not None and isinstance(val, (int, float)):
+                normalized[field] = round(val * 1000)
+        result.append(normalized)
+    return result
+
+
 ANALYZE_PROMPT = """You are a Vietnam stock market analyst. Analyze this stock and provide a structured assessment.
 
 IMPORTANT: All text fields (summary, reasoning, signals) MUST be written in Vietnamese.
+NOTE: All prices and per-share values (EPS, BVPS) are in VND. Market cap is in billion VND. P/E, P/B, ROE are ratios.
 
 Respond in JSON format:
 {
@@ -136,6 +155,7 @@ Respond in JSON format:
 DEEP_RESEARCH_PROMPT = """You are a senior Vietnam stock market research analyst. Write a comprehensive research report for this stock.
 
 IMPORTANT: Write the ENTIRE report in Vietnamese (tiếng Việt).
+NOTE: All prices and per-share values (EPS, BVPS) are in VND. Market cap is in billion VND. P/E, P/B, ROE are ratios. Use these values directly for valuation calculations.
 
 Include:
 1. Tóm tắt tổng quan (Executive Summary)
@@ -152,6 +172,8 @@ Be thorough and data-driven. Cite specific numbers from the provided data."""
 
 PORTFOLIO_REVIEW_PROMPT = """You are a Vietnam stock market portfolio advisor.
 Review each holding and provide actionable suggestions.
+
+NOTE: All prices and per-share values (EPS, BVPS) are in VND. Market cap is in billion VND. P/E, P/B, ROE are ratios.
 
 Each holding includes:
 - Position: symbol, quantity, averagePrice, currentPrice, pnlPercent, horizon, stopLoss, takeProfit
@@ -240,6 +262,8 @@ Respond in JSON format:
 
 FULL_ANALYSIS_PROMPT = """You are a senior Vietnam stock market analyst performing a comprehensive investment analysis.
 Analyze this stock using ALL provided data: price chart patterns, financial statements, and recent news.
+
+NOTE: All prices and per-share values (EPS, BVPS) are in VND. Market cap is in billion VND. P/E, P/B, ROE are ratios.
 
 Your analysis MUST cover these 3 dimensions:
 
@@ -442,6 +466,29 @@ class AIWorkflowService:
             self._fallback = FallbackFinancialScraper()
         return self._fallback
 
+    async def _get_price_with_fallback(self, symbol: str, start: str, end: str) -> list[dict]:
+        """Get price history, falling back to DNSE if VCI fails."""
+        try:
+            return self.vnstock.get_price_history(symbol, start, end)
+        except Exception as e:
+            logger.warning("VCI price failed for %s: %s, trying DNSE fallback", symbol, e)
+        try:
+            from services.dnse_client import DnseClient
+            from datetime import datetime
+            start_ts = int(datetime.strptime(start, "%Y-%m-%d").timestamp())
+            end_ts = int(datetime.strptime(end, "%Y-%m-%d").timestamp())
+            dnse = DnseClient()
+            candles = await dnse.get_ohlc(symbol, "1D", start_ts, end_ts)
+            for c in candles:
+                for f in ("open", "high", "low", "close"):
+                    if c.get(f) is not None:
+                        c[f] = round(c[f] * 1000)
+            logger.info("DNSE price fallback succeeded for %s (%d candles)", symbol, len(candles))
+            return candles
+        except Exception as e2:
+            logger.warning("DNSE price fallback also failed for %s: %s", symbol, e2)
+            return []
+
     async def analyze_stock(self, symbol: str) -> dict:
         """Full stock analysis: price + financials + news → AI summary."""
         from datetime import datetime, timedelta
@@ -456,14 +503,12 @@ class AIWorkflowService:
         ratios: list[dict] = []
         profile: dict = {}
 
-        try:
-            price_data = self.vnstock.get_price_history(symbol, start, end)
-        except Exception as e:
-            logger.warning("analyze_stock %s: price fetch failed: %s", symbol, e)
+        price_data = await self._get_price_with_fallback(symbol, start, end)
         try:
             income = self.vnstock.get_income_statement(symbol, "year")
         except Exception as e:
-            logger.warning("analyze_stock %s: income fetch failed: %s", symbol, e)
+            logger.warning("analyze_stock %s: income fetch failed: %s, trying fallback", symbol, e)
+            income = await self._get_fallback().get_income_with_fallback(symbol)
         try:
             ratios = self.vnstock.get_financial_ratios(symbol)
         except Exception as e:
@@ -480,6 +525,7 @@ class AIWorkflowService:
         except Exception:
             news = []
 
+        ratios = _normalize_ratios_to_vnd(ratios)
         data = {
             "symbol": symbol,
             "profile": profile,
@@ -524,22 +570,22 @@ class AIWorkflowService:
         ratios: list[dict] = []
         profile: dict = {}
 
-        try:
-            price_data = self.vnstock.get_price_history(symbol, start_1y, end)
-        except Exception as e:
-            logger.warning("full_analysis %s: price fetch failed: %s", symbol, e)
+        price_data = await self._get_price_with_fallback(symbol, start_1y, end)
         try:
             income = self.vnstock.get_income_statement(symbol, "year")
         except Exception as e:
-            logger.warning("full_analysis %s: income fetch failed: %s", symbol, e)
+            logger.warning("full_analysis %s: income fetch failed: %s, trying fallback", symbol, e)
+            income = await self._get_fallback().get_income_with_fallback(symbol)
         try:
             balance = self.vnstock.get_balance_sheet(symbol, "year")
         except Exception as e:
-            logger.warning("full_analysis %s: balance fetch failed: %s", symbol, e)
+            logger.warning("full_analysis %s: balance fetch failed: %s, trying fallback", symbol, e)
+            balance = await self._get_fallback().get_balance_with_fallback(symbol)
         try:
             cash_flow = self.vnstock.get_cash_flow(symbol, "year")
         except Exception as e:
-            logger.warning("full_analysis %s: cashflow fetch failed: %s", symbol, e)
+            logger.warning("full_analysis %s: cashflow fetch failed: %s, trying fallback", symbol, e)
+            cash_flow = await self._get_fallback().get_cashflow_with_fallback(symbol)
         try:
             ratios = self.vnstock.get_financial_ratios(symbol)
         except Exception as e:
@@ -556,6 +602,7 @@ class AIWorkflowService:
         except Exception:
             news = []
 
+        ratios = _normalize_ratios_to_vnd(ratios)
         data = {
             "symbol": symbol,
             "profile": profile,
@@ -599,22 +646,22 @@ class AIWorkflowService:
         ratios: list[dict] = []
         profile: dict = {}
 
-        try:
-            price_data = self.vnstock.get_price_history(symbol, start, end)
-        except Exception as e:
-            logger.warning("deep_research %s: price fetch failed: %s", symbol, e)
+        price_data = await self._get_price_with_fallback(symbol, start, end)
         try:
             income = self.vnstock.get_income_statement(symbol, "year")
         except Exception as e:
-            logger.warning("deep_research %s: income fetch failed: %s", symbol, e)
+            logger.warning("deep_research %s: income fetch failed: %s, trying fallback", symbol, e)
+            income = await self._get_fallback().get_income_with_fallback(symbol)
         try:
             balance = self.vnstock.get_balance_sheet(symbol, "year")
         except Exception as e:
-            logger.warning("deep_research %s: balance fetch failed: %s", symbol, e)
+            logger.warning("deep_research %s: balance fetch failed: %s, trying fallback", symbol, e)
+            balance = await self._get_fallback().get_balance_with_fallback(symbol)
         try:
             cash_flow = self.vnstock.get_cash_flow(symbol, "year")
         except Exception as e:
-            logger.warning("deep_research %s: cashflow fetch failed: %s", symbol, e)
+            logger.warning("deep_research %s: cashflow fetch failed: %s, trying fallback", symbol, e)
+            cash_flow = await self._get_fallback().get_cashflow_with_fallback(symbol)
         try:
             ratios = self.vnstock.get_financial_ratios(symbol)
         except Exception as e:
@@ -625,6 +672,7 @@ class AIWorkflowService:
         except Exception as e:
             logger.warning("deep_research %s: profile fetch failed: %s", symbol, e)
 
+        ratios = _normalize_ratios_to_vnd(ratios)
         data = {
             "symbol": symbol,
             "profile": profile,
@@ -663,22 +711,22 @@ class AIWorkflowService:
         except Exception as e:
             logger.warning("deep_research_stream %s: ratios fetch failed: %s, trying fallback", symbol, e)
             ratios = await self._get_fallback().get_ratios_with_fallback(symbol)
-        try:
-            price_data = self.vnstock.get_price_history(symbol, start_1y, end)
-        except Exception as e:
-            logger.warning("deep_research_stream %s: price fetch failed: %s", symbol, e)
+        price_data = await self._get_price_with_fallback(symbol, start_1y, end)
         try:
             income = self.vnstock.get_income_statement(symbol, "year")
         except Exception as e:
-            logger.warning("deep_research_stream %s: income fetch failed: %s", symbol, e)
+            logger.warning("deep_research_stream %s: income fetch failed: %s, trying fallback", symbol, e)
+            income = await self._get_fallback().get_income_with_fallback(symbol)
         try:
             balance = self.vnstock.get_balance_sheet(symbol, "year")
         except Exception as e:
-            logger.warning("deep_research_stream %s: balance fetch failed: %s", symbol, e)
+            logger.warning("deep_research_stream %s: balance fetch failed: %s, trying fallback", symbol, e)
+            balance = await self._get_fallback().get_balance_with_fallback(symbol)
         try:
             cash_flow = self.vnstock.get_cash_flow(symbol, "year")
         except Exception as e:
-            logger.warning("deep_research_stream %s: cashflow fetch failed: %s", symbol, e)
+            logger.warning("deep_research_stream %s: cashflow fetch failed: %s, trying fallback", symbol, e)
+            cash_flow = await self._get_fallback().get_cashflow_with_fallback(symbol)
 
         crawler = NewsCrawler()
         try:
@@ -686,18 +734,47 @@ class AIWorkflowService:
         except Exception:
             news = []
 
+        ratios = _normalize_ratios_to_vnd(ratios)
+
+        # Track data availability and warn user about missing data
+        data_warnings: list[str] = []
+        if not profile:
+            data_warnings.append("Hồ sơ công ty: không có dữ liệu")
+        if not ratios:
+            data_warnings.append("Chỉ số tài chính (P/E, ROE, EPS): không có dữ liệu")
+        if not price_data:
+            data_warnings.append("Lịch sử giá: không có dữ liệu")
+        if not income:
+            data_warnings.append("Báo cáo kết quả kinh doanh: không có dữ liệu")
+        if not balance:
+            data_warnings.append("Bảng cân đối kế toán: không có dữ liệu")
+        if not cash_flow:
+            data_warnings.append("Báo cáo lưu chuyển tiền tệ: không có dữ liệu")
+        if not news:
+            data_warnings.append("Tin tức gần đây: không có dữ liệu")
+
+        if data_warnings:
+            yield {"step": 0, "total": 4, "section": "data_status", "status": "warning", "warnings": data_warnings}
+
         yield {"step": 1, "total": 4, "section": "basic_analysis", "title": "Phân tích cơ bản", "status": "in_progress"}
         basic_data = _sanitize({
             "symbol": symbol,
             "profile": profile,
-            "financial_ratios": ratios[:4] if len(ratios) > 4 else ratios,
+            "financial_ratios": ratios[:5] if len(ratios) > 5 else ratios,
         })
-        basic_prompt = """Phân tích cơ bản cổ phiếu Việt Nam này. Bao gồm:
+        basic_missing = []
+        if not profile:
+            basic_missing.append("company profile")
+        if not ratios:
+            basic_missing.append("financial ratios (P/E, ROE, EPS)")
+        basic_prompt = f"""Phân tích cơ bản cổ phiếu Việt Nam này. Bao gồm:
 - Tổng quan công ty (ngành nghề, vị thế thị trường)
 - Đánh giá chỉ số quan trọng: P/E, P/B, ROE, EPS
 - Lịch sử cổ tức (nếu có)
 - Đánh giá sức khỏe tài chính tổng thể
 
+NOTE: All prices and per-share values (EPS, BVPS) are in VND. Market cap is in billion VND.
+{"WARNING: Missing data: " + ", ".join(basic_missing) + ". State clearly which data is unavailable. Do NOT fabricate numbers." if basic_missing else ""}
 IMPORTANT: Write ENTIRELY in Vietnamese. Use clear markdown with headers. Be concise but data-driven."""
         basic_content = await self.claude.analyze(basic_prompt, basic_data)
         yield {"step": 1, "total": 4, "section": "basic_analysis", "title": "Phân tích cơ bản", "status": "completed", "content": basic_content}
@@ -711,7 +788,8 @@ IMPORTANT: Write ENTIRELY in Vietnamese. Use clear markdown with headers. Be con
             "price_52w_low": min(p["low"] for p in price_data) if price_data else None,
             "current_price": price_data[-1]["close"] if price_data else None,
         })
-        chart_prompt = """Phân tích biến động giá và tín hiệu kỹ thuật của cổ phiếu này. Bao gồm:
+        chart_missing = "WARNING: No price data available. State clearly that technical analysis cannot be performed without price data. Do NOT fabricate price levels." if not price_data else ""
+        chart_prompt = f"""Phân tích biến động giá và tín hiệu kỹ thuật của cổ phiếu này. Bao gồm:
 - Xu hướng hiện tại (tăng/giảm/đi ngang)
 - Ngưỡng hỗ trợ và kháng cự quan trọng (mức giá cụ thể)
 - Phân tích đường trung bình động (MA 20/50/200)
@@ -719,19 +797,46 @@ IMPORTANT: Write ENTIRELY in Vietnamese. Use clear markdown with headers. Be con
 - Mô hình nến đáng chú ý
 - Đánh giá RSI/động lượng
 
-IMPORTANT: Write ENTIRELY in Vietnamese. Use clear markdown with headers. Give specific price levels."""
+NOTE: All prices are in VND (e.g., 33500 = 33,500 VND).
+{chart_missing}
+IMPORTANT: Write ENTIRELY in Vietnamese. Use clear markdown with headers. Give specific price levels in VND."""
         chart_content = await self.claude.analyze(chart_prompt, chart_data)
         yield {"step": 2, "total": 4, "section": "candle_chart", "title": "Phân tích biểu đồ nến", "status": "completed", "content": chart_content}
 
         yield {"step": 3, "total": 4, "section": "company_analysis", "title": "Phân tích công ty", "status": "in_progress"}
+        has_missing_statements = not income or not balance or not cash_flow
         company_data = _sanitize({
             "symbol": symbol,
             "profile": profile,
             "income_statement": income,
             "balance_sheet": balance,
             "cash_flow": cash_flow,
+            "financial_ratios": ratios[:10] if has_missing_statements else (ratios[:5] if len(ratios) > 5 else ratios),
         })
-        company_prompt = """Phân tích chuyên sâu báo cáo tài chính của công ty. Bao gồm:
+        company_missing = []
+        if not income:
+            company_missing.append("income statement")
+        if not balance:
+            company_missing.append("balance sheet")
+        if not cash_flow:
+            company_missing.append("cash flow statement")
+        if has_missing_statements and ratios:
+            company_prompt = f"""Phân tích tài chính công ty dựa trên dữ liệu chỉ số tài chính nhiều năm (financial_ratios).
+
+LƯU Ý: Báo cáo tài chính chi tiết ({", ".join(company_missing)}) không khả dụng. Hãy SỬ DỤNG financial_ratios (chứa {len(ratios)} năm dữ liệu: EPS, P/E, P/B, ROE, ROA, biên lợi nhuận, đòn bẩy tài chính, doanh thu, lợi nhuận ròng, tăng trưởng) để phân tích:
+
+- Xu hướng EPS và P/E qua các năm
+- Xu hướng ROE, ROA (hiệu quả sử dụng vốn)
+- Biên lợi nhuận ròng (netProfitMargin) và biên gộp (grossMargin)
+- Đòn bẩy tài chính (financialLeverage) — mức nợ
+- Xu hướng doanh thu và lợi nhuận ròng (revenue, netProfit, revenueGrowth)
+- Cổ tức (dividend) nếu có
+- Đánh giá tổng thể sức khỏe tài chính
+
+NOTE: All prices and per-share values (EPS, BVPS) are in VND. Market cap is in billion VND.
+IMPORTANT: You MUST provide a detailed analysis using the available ratio data. Do NOT say analysis cannot be performed. Write ENTIRELY in Vietnamese. Use clear markdown with headers. Cite specific numbers and year-over-year changes."""
+        else:
+            company_prompt = f"""Phân tích chuyên sâu báo cáo tài chính của công ty. Bao gồm:
 - Xu hướng doanh thu và lợi nhuận (nhiều năm)
 - Phân tích biên lợi nhuận (gộp, hoạt động, ròng)
 - Sức khỏe bảng cân đối (mức nợ, thanh khoản)
@@ -739,6 +844,7 @@ IMPORTANT: Write ENTIRELY in Vietnamese. Use clear markdown with headers. Give s
 - Động lực tăng trưởng và rủi ro từ dữ liệu tài chính
 - Vị thế ngành và lợi thế cạnh tranh
 
+{"WARNING: Missing: " + ", ".join(company_missing) + ". Use financial_ratios as supplement. Do NOT fabricate numbers." if company_missing else ""}
 IMPORTANT: Write ENTIRELY in Vietnamese. Use clear markdown with headers. Cite specific numbers and year-over-year changes."""
         company_content = await self.claude.analyze(company_prompt, company_data)
         yield {"step": 3, "total": 4, "section": "company_analysis", "title": "Phân tích công ty", "status": "completed", "content": company_content}
@@ -757,14 +863,15 @@ IMPORTANT: Write ENTIRELY in Vietnamese. Use clear markdown with headers. Cite s
 1. **Luận điểm đầu tư** — 2-3 câu tóm tắt cơ hội
 2. **Kịch bản tích cực** — lý do cổ phiếu có thể tăng trưởng
 3. **Kịch bản tiêu cực** — rủi ro và lo ngại chính
-4. **Định giá** — ước tính giá trị hợp lý với phương pháp
+4. **Định giá** — ước tính giá trị hợp lý với phương pháp (all prices in VND)
 5. **Khuyến nghị** — MUA / GIỮ / BÁN với:
-   - Giá mục tiêu
-   - Vùng giá mua vào
-   - Mức cắt lỗ
+   - Giá mục tiêu (VND)
+   - Vùng giá mua vào (VND)
+   - Mức cắt lỗ (VND)
    - Kỳ hạn đầu tư (ngắn hạn/trung hạn/dài hạn)
 6. **Mức độ tự tin** — 1-100 với giải thích ngắn
 
+NOTE: All prices and per-share values (EPS, BVPS) in the data are in VND. Use current_price from chart data as reference for price targets.
 IMPORTANT: Write ENTIRELY in Vietnamese. Use clear markdown. Be decisive in your recommendation."""
         summary_content = await self.claude.analyze(summary_prompt, summary_data)
         yield {"step": 4, "total": 4, "section": "summary", "title": "Tóm tắt & Khuyến nghị", "status": "completed", "content": summary_content}
@@ -1001,6 +1108,7 @@ IMPORTANT: Write ENTIRELY in Vietnamese. Use clear markdown. Be decisive in your
             except Exception:
                 signals = {}
 
+            ratios = _normalize_ratios_to_vnd(ratios)
             entry = {
                 **h,
                 "ratios": ratios[:1] if ratios else [],

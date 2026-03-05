@@ -358,11 +358,72 @@ def _normalize_cafef_history(entry: dict, symbol: str) -> dict:
     }
 
 
+def _extract_income_from_vci(raw_list: list[dict]) -> list[dict]:
+    """Extract income statement data from VCI ratio raw response."""
+    result = []
+    for r in raw_list:
+        result.append({
+            "yearReport": r.get("yearReport"),
+            "revenue": _safe_float(r.get("revenue")),
+            "netProfit": _safe_float(r.get("netProfit")),
+            "revenueGrowth": _safe_float(r.get("revenueGrowth")),
+            "netProfitGrowth": _safe_float(r.get("netProfitGrowth")),
+            "grossMargin": _safe_float(r.get("grossMargin")),
+            "netProfitMargin": _safe_float(r.get("netProfitMargin")),
+            "ebitMargin": _safe_float(r.get("ebitMargin")),
+            "ebitda": _safe_float(r.get("ebitda")),
+            "ebit": _safe_float(r.get("ebit")),
+            "ISA2_total_revenue": _safe_float(r.get("ISA2")),
+            "ISA23_net_profit_after_tax": _safe_float(r.get("ISA23")),
+            "ISA4_gross_profit": _safe_float(r.get("ISA4")),
+        })
+    return result
+
+
+def _extract_balance_from_vci(raw_list: list[dict]) -> list[dict]:
+    """Extract balance sheet data from VCI ratio raw response."""
+    result = []
+    for r in raw_list:
+        result.append({
+            "yearReport": r.get("yearReport"),
+            "BSA1_total_assets": _safe_float(r.get("BSA1")),
+            "BSA50_total_liabilities": _safe_float(r.get("BSA50")),
+            "BSA86_equity": _safe_float(r.get("BSA86")),
+            "currentRatio": _safe_float(r.get("currentRatio")),
+            "quickRatio": _safe_float(r.get("quickRatio")),
+            "cashRatio": _safe_float(r.get("cashRatio")),
+            "de_debt_to_equity": _safe_float(r.get("de")),
+            "le_financial_leverage": _safe_float(r.get("le")),
+            "interestCoverage": _safe_float(r.get("interestCoverage")),
+        })
+    return result
+
+
+def _extract_cashflow_from_vci(raw_list: list[dict]) -> list[dict]:
+    """Extract cash flow data from VCI ratio raw response."""
+    result = []
+    for r in raw_list:
+        result.append({
+            "yearReport": r.get("yearReport"),
+            "CFA21_operating_cash_flow": _safe_float(r.get("CFA21")),
+            "CFA22_investing_cash_flow": _safe_float(r.get("CFA22")),
+            "CFA3_net_cash_from_operations": _safe_float(r.get("CFA3")),
+        })
+    return result
+
+
 class FallbackFinancialScraper:
     """Fallback financial data when VCI vnstock fails."""
 
-    async def get_ratios_vci_direct(self, symbol: str, period: str = "Y", retries: int = 2) -> list[dict]:
-        """Direct VCI GraphQL call with retry — full query matching vnstock."""
+    def __init__(self):
+        self._vci_raw_cache: dict[str, list[dict]] = {}
+
+    async def _fetch_vci_raw(self, symbol: str, period: str = "Y", retries: int = 2) -> list[dict]:
+        """Fetch raw VCI GraphQL data with retry. Caches per symbol."""
+        cache_key = f"{symbol.upper()}:{period}"
+        if cache_key in self._vci_raw_cache:
+            return self._vci_raw_cache[cache_key]
+
         payload = {
             "query": _VCI_FULL_QUERY,
             "variables": {"ticker": symbol.upper(), "period": period},
@@ -377,21 +438,45 @@ class FallbackFinancialScraper:
 
                 ratios_raw = data.get("data", {}).get("CompanyFinancialRatio", {}).get("ratio", [])
                 if not ratios_raw:
-                    logger.warning("VCI direct: no ratios for %s (attempt %d)", symbol, attempt + 1)
+                    logger.warning("VCI direct: no data for %s (attempt %d)", symbol, attempt + 1)
                     if attempt < retries:
                         await asyncio.sleep(3)
                         continue
+                    self._vci_raw_cache[cache_key] = []
                     return []
 
-                result = [_normalize_vci_ratio(r) for r in ratios_raw]
-                logger.info("VCI direct fallback succeeded for %s (%d records)", symbol, len(result))
-                return result
+                self._vci_raw_cache[cache_key] = ratios_raw
+                logger.info("VCI direct succeeded for %s (%d records)", symbol, len(ratios_raw))
+                return ratios_raw
             except Exception as e:
                 logger.warning("VCI direct attempt %d failed for %s: %s", attempt + 1, symbol, e)
                 if attempt < retries:
                     await asyncio.sleep(3)
 
+        self._vci_raw_cache[cache_key] = []
         return []
+
+    async def get_ratios_vci_direct(self, symbol: str, period: str = "Y", retries: int = 2) -> list[dict]:
+        """Direct VCI GraphQL call with retry — returns normalized ratios."""
+        raw = await self._fetch_vci_raw(symbol, period, retries)
+        if not raw:
+            return []
+        return [_normalize_vci_ratio(r) for r in raw]
+
+    async def get_income_vci_direct(self, symbol: str) -> list[dict]:
+        """Extract income statement from VCI direct data."""
+        raw = await self._fetch_vci_raw(symbol, retries=0)
+        return _extract_income_from_vci(raw) if raw else []
+
+    async def get_balance_vci_direct(self, symbol: str) -> list[dict]:
+        """Extract balance sheet from VCI direct data."""
+        raw = await self._fetch_vci_raw(symbol, retries=0)
+        return _extract_balance_from_vci(raw) if raw else []
+
+    async def get_cashflow_vci_direct(self, symbol: str) -> list[dict]:
+        """Extract cash flow from VCI direct data."""
+        raw = await self._fetch_vci_raw(symbol, retries=0)
+        return _extract_cashflow_from_vci(raw) if raw else []
 
     async def get_ratios_cafef(self, symbol: str) -> list[dict]:
         """Fetch financial ratios from CafeF JSON API (current + historical)."""
@@ -453,3 +538,15 @@ class FallbackFinancialScraper:
 
         logger.warning("All fallback sources failed for %s ratios", symbol)
         return []
+
+    async def get_income_with_fallback(self, symbol: str) -> list[dict]:
+        """Get income statement data via VCI direct fallback."""
+        return await self.get_income_vci_direct(symbol)
+
+    async def get_balance_with_fallback(self, symbol: str) -> list[dict]:
+        """Get balance sheet data via VCI direct fallback."""
+        return await self.get_balance_vci_direct(symbol)
+
+    async def get_cashflow_with_fallback(self, symbol: str) -> list[dict]:
+        """Get cash flow data via VCI direct fallback."""
+        return await self.get_cashflow_vci_direct(symbol)

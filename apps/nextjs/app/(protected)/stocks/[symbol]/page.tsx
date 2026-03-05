@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  AlertTriangle,
   ArrowDownRight,
   ArrowLeft,
   ArrowUpRight,
@@ -154,22 +155,13 @@ function sectionSources(
     basic_analysis: [
       { label: "Chỉ số tài chính: VCI" },
       { label: "Hồ sơ công ty: VCI" },
-      { label: "AI: Claude Sonnet" },
     ],
     candle_chart: [
       { label: "Giá OHLCV: DNSE" },
       { label: "High/Low 52 tuần: DNSE" },
-      { label: "AI: Claude Sonnet" },
     ],
-    company_analysis: [
-      { label: "BCTC: VCI (Lãi lỗ · Cân đối · Dòng tiền)" },
-      { label: "AI: Claude Sonnet" },
-    ],
-    summary: [
-      { label: "Tổng hợp 3 phần trên" },
-      ...news,
-      { label: "AI: Claude Sonnet" },
-    ],
+    company_analysis: [{ label: "BCTC: VCI (Lãi lỗ · Cân đối · Dòng tiền)" }],
+    summary: [{ label: "Tổng hợp 3 phần trên" }, ...news],
   };
   return map[section];
 }
@@ -198,6 +190,7 @@ export default function StockDetailPage() {
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(
     new Set(),
   );
+  const [dataWarnings, setDataWarnings] = useState<string[]>([]);
   const [addingToWatchlist, setAddingToWatchlist] = useState(false);
   const [watchlistMsg, setWatchlistMsg] = useState<string | null>(null);
 
@@ -333,6 +326,7 @@ export default function StockDetailPage() {
     setCollapsedSections(new Set());
     setResearchSections(INITIAL_SECTIONS.map((s) => ({ ...s })));
     setResearchStep(0);
+    setDataWarnings([]);
 
     try {
       const res = await fetch(`/api/stocks/${symbol}/deep-research`, {
@@ -382,7 +376,9 @@ export default function StockDetailPage() {
               setResearching(false);
               break;
             }
-            if (data.section) {
+            if (data.section === "data_status" && data.warnings) {
+              setDataWarnings(data.warnings as string[]);
+            } else if (data.section) {
               setResearchStep(data.step);
               setResearchSections((prev) =>
                 prev.map((s) =>
@@ -668,7 +664,6 @@ export default function StockDetailPage() {
                   { label: "Giá: DNSE" },
                   { label: "Tài chính: VCI" },
                   ...stockNewsSources(symbol),
-                  { label: "AI: Claude Sonnet" },
                 ]}
               />
             </div>
@@ -743,6 +738,34 @@ export default function StockDetailPage() {
                 : `${completedSteps}/${researchTotal} sections complete`}
             </p>
           </div>
+
+          {/* Data Warnings */}
+          {dataWarnings.length > 0 && (
+            <div className="rounded-xl border border-amber-200 dark:border-amber-800/50 bg-amber-50 dark:bg-amber-950/30 p-4">
+              <div className="flex items-start gap-2">
+                <AlertTriangle className="h-4 w-4 text-amber-500 mt-0.5 shrink-0" />
+                <div>
+                  <p className="text-sm font-medium text-amber-800 dark:text-amber-300">
+                    Một số nguồn dữ liệu không khả dụng
+                  </p>
+                  <ul className="mt-1.5 space-y-0.5">
+                    {dataWarnings.map((w) => (
+                      <li
+                        key={w}
+                        className="text-xs text-amber-700 dark:text-amber-400"
+                      >
+                        {w}
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="text-xs text-amber-600 dark:text-amber-500 mt-2">
+                    Phân tích vẫn tiếp tục với dữ liệu hiện có. Kết quả có thể
+                    không đầy đủ.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Section Cards */}
           {researchSections

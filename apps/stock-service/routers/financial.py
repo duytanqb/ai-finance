@@ -19,6 +19,14 @@ async def get_income_statement(
         data = client.get_income_statement(symbol, period)
         return {"symbol": symbol, "data": data}
     except Exception as e:
+        logger.warning("VCI income statement failed for %s: %s, trying fallback", symbol, e)
+        try:
+            from services.fallback_scraper import FallbackFinancialScraper
+            data = await FallbackFinancialScraper().get_income_with_fallback(symbol)
+            if data:
+                return {"symbol": symbol, "data": data, "source": "fallback"}
+        except Exception as fallback_err:
+            logger.warning("Income fallback also failed for %s: %s", symbol, fallback_err)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -31,6 +39,14 @@ async def get_balance_sheet(
         data = client.get_balance_sheet(symbol, period)
         return {"symbol": symbol, "data": data}
     except Exception as e:
+        logger.warning("VCI balance sheet failed for %s: %s, trying fallback", symbol, e)
+        try:
+            from services.fallback_scraper import FallbackFinancialScraper
+            data = await FallbackFinancialScraper().get_balance_with_fallback(symbol)
+            if data:
+                return {"symbol": symbol, "data": data, "source": "fallback"}
+        except Exception as fallback_err:
+            logger.warning("Balance fallback also failed for %s: %s", symbol, fallback_err)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -43,6 +59,14 @@ async def get_cash_flow(
         data = client.get_cash_flow(symbol, period)
         return {"symbol": symbol, "data": data}
     except Exception as e:
+        logger.warning("VCI cash flow failed for %s: %s, trying fallback", symbol, e)
+        try:
+            from services.fallback_scraper import FallbackFinancialScraper
+            data = await FallbackFinancialScraper().get_cashflow_with_fallback(symbol)
+            if data:
+                return {"symbol": symbol, "data": data, "source": "fallback"}
+        except Exception as fallback_err:
+            logger.warning("Cashflow fallback also failed for %s: %s", symbol, fallback_err)
         raise HTTPException(status_code=500, detail=str(e))
 
 
