@@ -86,3 +86,4 @@
 **/*.pyo
 **/.mypy_cache/
 .github/workflows/
+Longterm-Stock.md
