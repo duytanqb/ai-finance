@@ -12,6 +12,7 @@ import {
   Shield,
   Sparkles,
   TrendingUp,
+  Users,
 } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -91,6 +92,67 @@ interface DigestResponse {
   cached?: boolean;
   error?: string;
 }
+
+interface YouTubeVideoSummary {
+  video_id: string;
+  title: string;
+  channel_name: string;
+  published_at: string;
+  thumbnail_url: string;
+  duration_minutes: number;
+  stocks_mentioned: { symbol: string; sentiment: string; context: string }[];
+  sectors: { name: string; outlook: string }[];
+  key_points: string[];
+  risk_warnings: string[];
+  trading_recommendations: string[];
+  overall_sentiment: "bullish" | "bearish" | "neutral";
+  summary: string;
+}
+
+interface YouTubeDigestData {
+  date: string;
+  generated_at: string;
+  videos_processed: number;
+  video_summaries: YouTubeVideoSummary[];
+  digest: {
+    consensus_stocks: {
+      symbol: string;
+      mentions: number;
+      avg_sentiment: string;
+      contexts: string[];
+    }[];
+    hot_sectors: {
+      name: string;
+      outlook: string;
+      mentioned_by: string[];
+    }[];
+    conflicting_views: {
+      topic: string;
+      views: { creator: string; position: string }[];
+    }[];
+    risk_warnings: string[];
+    market_sentiment: string;
+    summary: string;
+  };
+  cached?: boolean;
+}
+
+const SENTIMENT_STYLES: Record<string, { label: string; color: string }> = {
+  bullish: {
+    label: "Tích cực",
+    color:
+      "text-emerald-600 bg-emerald-50 dark:bg-emerald-900/20 dark:text-emerald-400",
+  },
+  neutral: {
+    label: "Trung lập",
+    color:
+      "text-amber-600 bg-amber-50 dark:bg-amber-900/20 dark:text-amber-400",
+  },
+  bearish: {
+    label: "Tiêu cực",
+    color: "text-red-600 bg-red-50 dark:bg-red-900/20 dark:text-red-400",
+  },
+};
 
 const ACTION_STYLES: Record<string, string> = {
   BUY: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400",
@@ -543,6 +605,8 @@ export default function MarketWatchPage() {
   const [error, setError] = useState<string | null>(null);
   const [pipelineProgress, setPipelineProgress] =
     useState<PipelineProgress | null>(null);
+  const [ytDigest, setYtDigest] = useState<YouTubeDigestData | null>(null);
+  const [ytExpanded, setYtExpanded] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pollStartRef = useRef<number>(0);
 
@@ -666,6 +730,12 @@ export default function MarketWatchPage() {
 
   useEffect(() => {
     fetchDigest();
+    fetch("/api/youtube/digest")
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.digest) setYtDigest(data as YouTubeDigestData);
+      })
+      .catch(() => {});
     return () => stopPolling();
   }, [fetchDigest, stopPolling]);
 
@@ -808,6 +878,204 @@ export default function MarketWatchPage() {
               sources={[...NEWS_SOURCES, { label: "AI: Claude Sonnet" }]}
             />
           </div>
+
+          {/* Expert Assessment */}
+          {ytDigest?.digest && (
+            <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-5">
+              <div className="flex items-center gap-2 mb-3">
+                <Users className="h-4 w-4 text-violet-500" />
+                <h2 className="font-semibold text-zinc-900 dark:text-zinc-100 text-sm">
+                  Nhận Định Chuyên Gia
+                </h2>
+                {ytDigest.digest.market_sentiment &&
+                  SENTIMENT_STYLES[ytDigest.digest.market_sentiment] && (
+                    <span
+                      className={`text-xs font-medium px-2.5 py-0.5 rounded-full ${SENTIMENT_STYLES[ytDigest.digest.market_sentiment]?.color}`}
+                    >
+                      {
+                        SENTIMENT_STYLES[ytDigest.digest.market_sentiment]
+                          ?.label
+                      }
+                    </span>
+                  )}
+                <span className="text-xs text-zinc-400 ml-auto flex items-center gap-1">
+                  <Clock className="h-3 w-3" />
+                  {ytDigest.generated_at
+                    ? timeAgo(ytDigest.generated_at)
+                    : ytDigest.date}
+                  <span className="text-zinc-300 dark:text-zinc-600 mx-1">
+                    &middot;
+                  </span>
+                  {ytDigest.videos_processed} video
+                </span>
+              </div>
+
+              {/* Summary */}
+              <p className="text-sm text-zinc-600 dark:text-zinc-400 leading-relaxed mb-3">
+                {ytDigest.digest.summary}
+              </p>
+
+              {/* Consensus Stocks */}
+              {ytDigest.digest.consensus_stocks?.length > 0 && (
+                <div className="mb-3">
+                  <h3 className="text-xs font-semibold text-zinc-500 dark:text-zinc-400 uppercase tracking-wider mb-1.5">
+                    Cổ phiếu nổi bật
+                  </h3>
+                  <div className="flex flex-wrap gap-1.5">
+                    {ytDigest.digest.consensus_stocks.map((s) => (
+                      <Link
+                        key={s.symbol}
+                        href={`/stocks/${s.symbol}`}
+                        className={`text-xs font-mono px-2 py-1 rounded-md border transition-colors ${
+                          s.avg_sentiment === "bullish"
+                            ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-900/20 dark:text-emerald-400 hover:bg-emerald-100"
+                            : s.avg_sentiment === "bearish"
+                              ? "border-red-200 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-900/20 dark:text-red-400 hover:bg-red-100"
+                              : "border-zinc-200 bg-zinc-50 text-zinc-700 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300 hover:bg-zinc-100"
+                        }`}
+                      >
+                        {s.symbol}
+                        {s.mentions > 1 && (
+                          <span className="ml-1 opacity-60">x{s.mentions}</span>
+                        )}
+                      </Link>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Hot Sectors */}
+              {ytDigest.digest.hot_sectors?.length > 0 && (
+                <div className="mb-3">
+                  <h3 className="text-xs font-semibold text-zinc-500 dark:text-zinc-400 uppercase tracking-wider mb-1.5">
+                    Ngành được nhắc đến
+                  </h3>
+                  <div className="flex flex-wrap gap-1.5">
+                    {ytDigest.digest.hot_sectors.map((s) => (
+                      <span
+                        key={s.name}
+                        className="text-xs px-2 py-1 rounded-md bg-violet-50 text-violet-700 dark:bg-violet-900/20 dark:text-violet-400 border border-violet-200 dark:border-violet-800"
+                      >
+                        {s.name}
+                        <span className="ml-1 opacity-60">
+                          ({s.mentioned_by?.length || 0} kênh)
+                        </span>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Risk Warnings */}
+              {ytDigest.digest.risk_warnings?.length > 0 && (
+                <div className="mb-3 rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 px-3 py-2">
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <AlertTriangle className="h-3 w-3 text-amber-500" />
+                    <span className="text-xs font-semibold text-amber-600 dark:text-amber-400">
+                      Cảnh báo rủi ro
+                    </span>
+                  </div>
+                  <ul className="space-y-0.5">
+                    {ytDigest.digest.risk_warnings.map((w) => (
+                      <li
+                        key={w}
+                        className="text-xs text-amber-700 dark:text-amber-300"
+                      >
+                        &bull; {w}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {/* Expandable Video Details */}
+              {ytDigest.video_summaries?.length > 0 && (
+                <div>
+                  <button
+                    type="button"
+                    onClick={() => setYtExpanded(!ytExpanded)}
+                    className="text-xs text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300 flex items-center gap-1 transition-colors"
+                  >
+                    <span
+                      className={`transition-transform ${ytExpanded ? "rotate-90" : ""}`}
+                    >
+                      &#9654;
+                    </span>
+                    Chi tiết {ytDigest.video_summaries.length} video
+                  </button>
+                  {ytExpanded && (
+                    <div className="mt-3 space-y-3">
+                      {ytDigest.video_summaries.map((v) => (
+                        <div
+                          key={v.video_id}
+                          className="rounded-lg border border-zinc-100 dark:border-zinc-800 p-3"
+                        >
+                          <div className="flex items-start justify-between gap-2 mb-2">
+                            <div>
+                              <a
+                                href={`https://www.youtube.com/watch?v=${v.video_id}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-sm font-medium text-zinc-900 dark:text-zinc-100 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+                              >
+                                {v.title}
+                                <ExternalLink className="inline h-3 w-3 ml-1 opacity-50" />
+                              </a>
+                              <p className="text-xs text-zinc-400 mt-0.5">
+                                {v.channel_name}
+                                {v.duration_minutes > 0 &&
+                                  ` \u00B7 ${v.duration_minutes} ph\u00FAt`}
+                              </p>
+                            </div>
+                            {v.overall_sentiment &&
+                              SENTIMENT_STYLES[v.overall_sentiment] && (
+                                <span
+                                  className={`text-[10px] font-medium px-2 py-0.5 rounded-full shrink-0 ${SENTIMENT_STYLES[v.overall_sentiment]?.color}`}
+                                >
+                                  {SENTIMENT_STYLES[v.overall_sentiment]?.label}
+                                </span>
+                              )}
+                          </div>
+                          {v.stocks_mentioned?.length > 0 && (
+                            <div className="flex flex-wrap gap-1 mb-2">
+                              {v.stocks_mentioned.map((s) => (
+                                <Link
+                                  key={`${v.video_id}-${s.symbol}`}
+                                  href={`/stocks/${s.symbol}`}
+                                  className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${
+                                    s.sentiment === "bullish"
+                                      ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-400"
+                                      : s.sentiment === "bearish"
+                                        ? "bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-400"
+                                        : "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400"
+                                  }`}
+                                  title={s.context}
+                                >
+                                  {s.symbol}
+                                </Link>
+                              ))}
+                            </div>
+                          )}
+                          {v.key_points?.length > 0 && (
+                            <ul className="space-y-0.5">
+                              {v.key_points.slice(0, 3).map((p, i) => (
+                                <li
+                                  key={`kp-${v.video_id}-${i}`}
+                                  className="text-xs text-zinc-500 dark:text-zinc-400"
+                                >
+                                  &bull; {p}
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Sector Overview Cards */}
           {hasSectorData && (

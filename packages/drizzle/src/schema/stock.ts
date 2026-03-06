@@ -123,6 +123,42 @@ export const priceAlert = pgTable(
   ],
 );
 
+export const youtubeVideo = pgTable(
+  "youtube_video",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    videoId: text("video_id").notNull().unique(),
+    channelName: text("channel_name").notNull(),
+    title: text("title").notNull(),
+    publishedAt: timestamp("published_at"),
+    thumbnailUrl: text("thumbnail_url"),
+    durationMinutes: integer("duration_minutes"),
+    summary: jsonb("summary"),
+    processedAt: timestamp("processed_at").defaultNow(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => [
+    index("youtube_video_channel_idx").on(table.channelName),
+    index("youtube_video_processed_idx").on(table.processedAt),
+  ],
+);
+
+export const youtubeDigest = pgTable(
+  "youtube_digest",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    date: text("date").notNull(),
+    generatedAt: timestamp("generated_at").notNull(),
+    digest: jsonb("digest").notNull(),
+    videosProcessed: integer("videos_processed").default(0),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => [
+    index("youtube_digest_date_idx").on(table.date),
+    index("youtube_digest_created_idx").on(table.createdAt),
+  ],
+);
+
 export const analysisReport = pgTable(
   "analysis_report",
   {

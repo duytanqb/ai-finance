@@ -11,3 +11,4 @@ beautifulsoup4>=4.12.3
 pandas>=2.2.0
 python-dotenv>=1.0.1
 pytz>=2024.1
+youtube-transcript-api>=1.0.0

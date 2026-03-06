@@ -1088,6 +1088,125 @@ IMPORTANT: Write ENTIRELY in Vietnamese. Use clear markdown. Be decisive in your
         analysis = await self.claude.analyze(prompt, _sanitize(stocks_data))
         return {"symbols": symbols, "comparison": analysis}
 
+    async def summarize_video(self, video: dict) -> dict:
+        """Summarize a YouTube video transcript using AI."""
+        title = video.get("title", "")
+        channel = video.get("channel_name", "")
+        transcript = video.get("transcript", "")
+
+        if len(transcript) > 12000:
+            transcript = transcript[:6000] + "\n...\n" + transcript[-6000:]
+
+        prompt = """Bạn là chuyên gia phân tích thị trường chứng khoán Việt Nam.
+Hãy phân tích nội dung video YouTube về chứng khoán dưới đây và trích xuất thông tin quan trọng.
+
+Trả về JSON với cấu trúc:
+{
+  "stocks_mentioned": [{"symbol": "MÃ CỔ PHIẾU (viết hoa)", "sentiment": "bullish|bearish|neutral", "context": "tóm tắt ngắn về nhận định"}],
+  "sectors": [{"name": "tên ngành", "outlook": "tóm tắt triển vọng"}],
+  "key_points": ["điểm chính 1", "điểm chính 2", ...],
+  "risk_warnings": ["cảnh báo rủi ro 1", ...],
+  "trading_recommendations": ["khuyến nghị giao dịch 1", ...],
+  "overall_sentiment": "bullish|bearish|neutral",
+  "summary": "tóm tắt nội dung video trong 2-3 câu"
+}
+
+Lưu ý:
+- Chỉ liệt kê mã cổ phiếu thực sự được nhắc đến (VD: VCB, FPT, HPG, PVS...)
+- Sentiment dựa trên nhận định của người nói
+- key_points: tối đa 5 điểm quan trọng nhất
+- risk_warnings: các cảnh báo về rủi ro thị trường, vĩ mô
+- Viết bằng tiếng Việt"""
+
+        data = {
+            "video_title": title,
+            "channel": channel,
+            "transcript": transcript,
+        }
+
+        result = await self.claude.analyze(prompt, _sanitize(data))
+
+        try:
+            cleaned = result.strip()
+            if cleaned.startswith("```"):
+                cleaned = cleaned.split("\n", 1)[1] if "\n" in cleaned else cleaned
+                cleaned = cleaned.rsplit("```", 1)[0]
+            parsed = json.loads(cleaned)
+            parsed["video_id"] = video.get("video_id", "")
+            parsed["title"] = title
+            parsed["channel_name"] = channel
+            parsed["published_at"] = video.get("published_at", "")
+            parsed["thumbnail_url"] = video.get("thumbnail_url", "")
+            parsed["duration_minutes"] = video.get("duration_minutes", 0)
+            return parsed
+        except (json.JSONDecodeError, IndexError):
+            logger.warning("Failed to parse video summary for %s", title)
+            return {
+                "video_id": video.get("video_id", ""),
+                "title": title,
+                "channel_name": channel,
+                "published_at": video.get("published_at", ""),
+                "summary": result,
+                "stocks_mentioned": [],
+                "sectors": [],
+                "key_points": [],
+                "risk_warnings": [],
+                "trading_recommendations": [],
+                "overall_sentiment": "neutral",
+            }
+
+    async def youtube_market_digest(self, video_summaries: list[dict]) -> dict:
+        """Cross-reference video summaries into a unified market digest."""
+        if not video_summaries:
+            return {
+                "consensus_stocks": [],
+                "hot_sectors": [],
+                "conflicting_views": [],
+                "risk_warnings": [],
+                "market_sentiment": "neutral",
+                "summary": "Không có video mới để phân tích.",
+            }
+
+        prompt = """Bạn là chuyên gia tổng hợp phân tích thị trường chứng khoán Việt Nam.
+Dưới đây là tóm tắt AI từ nhiều kênh YouTube tài chính khác nhau trong ngày.
+Hãy tổng hợp và đối chiếu các nhận định để đưa ra bức tranh toàn cảnh thị trường.
+
+Trả về JSON với cấu trúc:
+{
+  "consensus_stocks": [{"symbol": "MÃ", "mentions": số_lần_nhắc, "avg_sentiment": "bullish|bearish|neutral", "contexts": ["nhận định từ kênh A", "nhận định từ kênh B"]}],
+  "hot_sectors": [{"name": "tên ngành", "outlook": "triển vọng", "mentioned_by": ["kênh A", "kênh B"]}],
+  "conflicting_views": [{"topic": "chủ đề", "views": [{"creator": "kênh", "position": "quan điểm"}]}],
+  "risk_warnings": ["cảnh báo rủi ro tổng hợp 1", ...],
+  "market_sentiment": "bullish|bearish|neutral",
+  "summary": "tóm tắt tổng quan thị trường dựa trên tất cả các video (3-5 câu)"
+}
+
+Lưu ý:
+- consensus_stocks: chỉ liệt kê cổ phiếu được 2+ kênh nhắc đến, hoặc cổ phiếu được nhấn mạnh đặc biệt
+- conflicting_views: khi các kênh có nhận định trái ngược
+- risk_warnings: tổng hợp tất cả cảnh báo rủi ro, loại bỏ trùng lặp
+- Viết bằng tiếng Việt"""
+
+        data = {"video_summaries": video_summaries}
+        result = await self.claude.analyze(prompt, _sanitize(data))
+
+        try:
+            cleaned = result.strip()
+            if cleaned.startswith("```"):
+                cleaned = cleaned.split("\n", 1)[1] if "\n" in cleaned else cleaned
+                cleaned = cleaned.rsplit("```", 1)[0]
+            return json.loads(cleaned)
+        except (json.JSONDecodeError, IndexError):
+            logger.warning("Failed to parse youtube digest")
+            return {
+                "consensus_stocks": [],
+                "hot_sectors": [],
+                "conflicting_views": [],
+                "risk_warnings": [],
+                "market_sentiment": "neutral",
+                "summary": result,
+            }
+
     async def portfolio_review(self, holdings: list[dict]) -> dict:
         """Review portfolio holdings with AI suggestions."""
         import time
