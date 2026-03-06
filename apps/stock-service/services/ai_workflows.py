@@ -199,6 +199,8 @@ If not available, base analysis on ratios and technical signals only.
 
 IMPORTANT: All text MUST be written in Vietnamese. Be specific with numbers and price levels.
 
+For each holding, also check the "dividend" field in ratios data. If dividend data is available, include it.
+
 Respond in JSON:
 {
   "holdings": [
@@ -207,8 +209,9 @@ Respond in JSON:
       "action": "HOLD" | "SELL" | "ADD_MORE",
       "reasoning": "3-4 câu giải thích dựa trên vị thế, kỹ thuật, và deep research (nếu có)",
       "urgency": "low|medium|high",
-      "suggested_stop_loss": number or null,
-      "suggested_take_profit": number or null
+      "suggested_stop_loss": number or null (VND, based on MA50/support levels),
+      "suggested_take_profit": number or null (VND, based on resistance/valuation),
+      "dividend_yield": number or null (decimal, e.g. 0.035 = 3.5%, from ratios if available)
     }
   ],
   "portfolio_summary": "đánh giá tổng quan danh mục 3-4 câu: phân bổ, rủi ro, tín hiệu kỹ thuật chung, khuyến nghị"

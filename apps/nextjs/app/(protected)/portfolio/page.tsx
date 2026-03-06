@@ -41,6 +41,7 @@ interface AIHoldingReview {
   urgency: string;
   suggested_stop_loss?: number | null;
   suggested_take_profit?: number | null;
+  dividend_yield?: number | null;
 }
 
 interface AIReviewResult {
@@ -112,7 +113,7 @@ export default function PortfolioPage() {
   const [aiReview, setAiReview] = useState<AIReviewResult | null>(null);
   const [aiReviewAge, setAiReviewAge] = useState<string | null>(null);
   const [reviewing, setReviewing] = useState(false);
-  const [bgResearchSymbols, setBgResearchSymbols] = useState<string[]>([]);
+  const [noResearchSymbols, setNoResearchSymbols] = useState<string[]>([]);
   const [staleResearchSymbols, setStaleResearchSymbols] = useState<string[]>(
     [],
   );
@@ -373,10 +374,54 @@ export default function PortfolioPage() {
 
       if (!res.ok) throw new Error("AI review failed");
       const data = await res.json();
-      const review = data.review;
+      const review = data.review as AIReviewResult;
       setAiReview(review);
       setAiReviewAge(new Date().toISOString());
-      setBgResearchSymbols(data.backgroundResearchSymbols || []);
+      setNoResearchSymbols(data.noResearchSymbols || []);
+
+      // Auto-save SL/TP from AI suggestions to holdings
+      if (review?.holdings) {
+        for (const aiH of review.holdings) {
+          const holding = holdings.find(
+            (h) => h.symbol.toUpperCase() === aiH.symbol.toUpperCase(),
+          );
+          if (!holding) continue;
+          const updates: Record<string, unknown> = {};
+          if (aiH.suggested_stop_loss && !holding.stopLoss) {
+            updates.stopLoss = aiH.suggested_stop_loss;
+          }
+          if (aiH.suggested_take_profit && !holding.takeProfit) {
+            updates.takeProfit = aiH.suggested_take_profit;
+          }
+          if (Object.keys(updates).length > 0) {
+            fetch(`/api/portfolio/${holding.id}`, {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(updates),
+            }).catch(() => {});
+          }
+        }
+        // Update local state with AI dividend data
+        setHoldings((prev) =>
+          prev.map((h) => {
+            const aiH = review.holdings.find(
+              (r) => r.symbol.toUpperCase() === h.symbol.toUpperCase(),
+            );
+            return {
+              ...h,
+              stopLoss:
+                aiH?.suggested_stop_loss && !h.stopLoss
+                  ? aiH.suggested_stop_loss
+                  : h.stopLoss,
+              takeProfit:
+                aiH?.suggested_take_profit && !h.takeProfit
+                  ? aiH.suggested_take_profit
+                  : h.takeProfit,
+              dividendYield: aiH?.dividend_yield ?? h.dividendYield,
+            };
+          }),
+        );
+      }
 
       try {
         await fetch("/api/reports", {
@@ -718,8 +763,10 @@ export default function PortfolioPage() {
                 <p className="text-xs text-zinc-500 leading-relaxed">
                   {h.reasoning}
                 </p>
-                {(h.suggested_stop_loss || h.suggested_take_profit) && (
-                  <div className="flex gap-3 mt-2">
+                {(h.suggested_stop_loss ||
+                  h.suggested_take_profit ||
+                  h.dividend_yield) && (
+                  <div className="flex flex-wrap gap-2 mt-2">
                     {h.suggested_stop_loss && (
                       <span className="text-[10px] font-mono bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 px-1.5 py-0.5 rounded">
                         SL: {formatVND(h.suggested_stop_loss)}
@@ -730,18 +777,23 @@ export default function PortfolioPage() {
                         TP: {formatVND(h.suggested_take_profit)}
                       </span>
                     )}
+                    {h.dividend_yield != null && h.dividend_yield > 0 && (
+                      <span className="text-[10px] font-mono bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 px-1.5 py-0.5 rounded">
+                        Cổ tức: {(h.dividend_yield * 100).toFixed(1)}%
+                      </span>
+                    )}
                   </div>
                 )}
               </div>
             ))}
           </div>
-          {bgResearchSymbols.length > 0 && (
-            <div className="rounded-lg bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 px-3 py-2 flex items-center gap-2">
-              <Loader2 className="h-3.5 w-3.5 animate-spin text-blue-500 shrink-0" />
-              <p className="text-xs text-blue-600 dark:text-blue-400">
-                Đang chạy Deep Research cho {bgResearchSymbols.length} mã (
-                {bgResearchSymbols.join(", ")}) — review tiếp theo sẽ chính xác
-                hơn.
+          {noResearchSymbols.length > 0 && (
+            <div className="rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 px-3 py-2 flex items-center gap-2">
+              <AlertTriangle className="h-3.5 w-3.5 text-amber-500 shrink-0" />
+              <p className="text-xs text-amber-600 dark:text-amber-400">
+                {noResearchSymbols.length} mã chưa có Deep Research (
+                {noResearchSymbols.join(", ")}). Bấm &quot;Deep Research&quot;
+                tại trang chi tiết cổ phiếu để có phân tích chính xác hơn.
               </p>
             </div>
           )}

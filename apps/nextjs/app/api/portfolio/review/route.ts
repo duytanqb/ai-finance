@@ -4,11 +4,6 @@ import { NextResponse } from "next/server";
 import { authGuard } from "@/adapters/guards/auth.guard";
 import { stockServicePost } from "@/lib/stock-service";
 
-const STOCK_SERVICE_URL =
-  process.env.STOCK_SERVICE_URL ||
-  process.env.NEXT_PUBLIC_STOCK_SERVICE_URL ||
-  "http://localhost:8000";
-
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
 
 export async function POST(request: Request) {
@@ -55,7 +50,7 @@ export async function POST(request: Request) {
       if (!reportMap.has(r.symbol)) reportMap.set(r.symbol, r);
     }
 
-    const backgroundResearchSymbols: string[] = [];
+    const noResearchSymbols: string[] = [];
 
     const enrichedHoldings = holdings.map((h) => {
       const sym = String(h.symbol || "").toUpperCase();
@@ -65,7 +60,7 @@ export async function POST(request: Request) {
         Date.now() - new Date(report.createdAt).getTime() < SEVEN_DAYS_MS;
 
       if (!isFresh && sym) {
-        backgroundResearchSymbols.push(sym);
+        noResearchSymbols.push(sym);
       }
 
       if (isFresh && report?.result) {
@@ -81,15 +76,6 @@ export async function POST(request: Request) {
       return h;
     });
 
-    for (const sym of backgroundResearchSymbols) {
-      fetch(
-        `${STOCK_SERVICE_URL}/api/ai/deep-research-bg/${encodeURIComponent(sym)}`,
-        {
-          method: "POST",
-        },
-      ).catch(() => {});
-    }
-
     const result = await stockServicePost(
       "/api/ai/portfolio-review",
       enrichedHoldings,
@@ -97,7 +83,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json({
       ...(result as Record<string, unknown>),
-      backgroundResearchSymbols,
+      noResearchSymbols,
     });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Failed to get AI review";

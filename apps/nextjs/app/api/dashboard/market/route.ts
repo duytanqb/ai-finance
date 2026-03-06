@@ -46,44 +46,28 @@ export async function GET() {
     const dailyFrom = now - 7 * 86400;
     const intradayFrom = now - 86400;
 
-    const [vnDailyRes, hnxDailyRes, vnIntradayRes, hnxIntradayRes] =
-      await Promise.allSettled([
-        stockServiceGet(
-          `/api/price/index/VNINDEX/history?resolution=1D&from_ts=${dailyFrom}&to_ts=${now}`,
-        ) as Promise<IndexResponse>,
-        stockServiceGet(
-          `/api/price/index/HNXINDEX/history?resolution=1D&from_ts=${dailyFrom}&to_ts=${now}`,
-        ) as Promise<IndexResponse>,
-        stockServiceGet(
-          `/api/price/index/VNINDEX/history?resolution=15&from_ts=${intradayFrom}&to_ts=${now}`,
-        ) as Promise<IndexResponse>,
-        stockServiceGet(
-          `/api/price/index/HNXINDEX/history?resolution=15&from_ts=${intradayFrom}&to_ts=${now}`,
-        ) as Promise<IndexResponse>,
-      ]);
+    const [vnDailyRes, vnIntradayRes] = await Promise.allSettled([
+      stockServiceGet(
+        `/api/price/index/VNINDEX/history?resolution=1D&from_ts=${dailyFrom}&to_ts=${now}`,
+      ) as Promise<IndexResponse>,
+      stockServiceGet(
+        `/api/price/index/VNINDEX/history?resolution=15&from_ts=${intradayFrom}&to_ts=${now}`,
+      ) as Promise<IndexResponse>,
+    ]);
 
     const vnChange =
       vnDailyRes.status === "fulfilled"
         ? computeChange(vnDailyRes.value.data)
         : null;
-    const hnxChange =
-      hnxDailyRes.status === "fulfilled"
-        ? computeChange(hnxDailyRes.value.data)
-        : null;
     const vnChart =
       vnIntradayRes.status === "fulfilled"
         ? toChartPoints(vnIntradayRes.value.data)
         : [];
-    const hnxChart =
-      hnxIntradayRes.status === "fulfilled"
-        ? toChartPoints(hnxIntradayRes.value.data)
-        : [];
 
     return NextResponse.json({
       vnindex: vnChange ? { ...vnChange, chart: vnChart } : null,
-      hnxindex: hnxChange ? { ...hnxChange, chart: hnxChart } : null,
     });
   } catch {
-    return NextResponse.json({ vnindex: null, hnxindex: null });
+    return NextResponse.json({ vnindex: null });
   }
 }

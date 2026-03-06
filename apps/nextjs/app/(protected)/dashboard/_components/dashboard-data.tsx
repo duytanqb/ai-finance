@@ -41,7 +41,6 @@ interface IndexData {
 
 interface MarketData {
   vnindex: IndexData | null;
-  hnxindex: IndexData | null;
 }
 
 interface TopStock {
@@ -123,9 +122,8 @@ export function DashboardData() {
 
   return (
     <>
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-3">
         <IndexCard label="VN-Index" data={market?.vnindex ?? null} />
-        <IndexCard label="HNX-Index" data={market?.hnxindex ?? null} />
         <StatCard
           label="Portfolio"
           value={String(portfolioCount)}
