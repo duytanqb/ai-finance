@@ -1207,6 +1207,101 @@ Lưu ý:
                 "summary": result,
             }
 
+    async def watchlist_review(self, symbols: list[str]) -> dict:
+        """Review watchlist stocks with MA50 signal as primary indicator."""
+        from datetime import datetime, timedelta
+
+        end = datetime.now().strftime("%Y-%m-%d")
+        start = (datetime.now() - timedelta(days=90)).strftime("%Y-%m-%d")
+
+        stock_signals = []
+        for symbol in symbols:
+            price_data = await self._get_price_with_fallback(symbol, start, end)
+            if not price_data:
+                stock_signals.append({
+                    "symbol": symbol,
+                    "error": "Không có dữ liệu giá",
+                })
+                continue
+
+            signals = _compute_technical_signals(price_data)
+            stock_signals.append({
+                "symbol": symbol,
+                "current_price": signals.get("current_price"),
+                "ma50": signals.get("ma50"),
+                "ma10": signals.get("ma10"),
+                "ma20": signals.get("ma20"),
+                "price_vs_ma50": signals.get("price_vs_ma50"),
+                "ma50_distance_pct": signals.get("ma50_distance_pct"),
+                "ma10_vs_ma50": signals.get("ma10_vs_ma50"),
+                "rsi_14": signals.get("rsi_14"),
+                "volume_ratio_5d_vs_20d": signals.get("volume_ratio_5d_vs_20d"),
+            })
+
+        valid_signals = [s for s in stock_signals if "error" not in s]
+        if not valid_signals:
+            return {"results": stock_signals}
+
+        prompt = """Bạn là chuyên gia phân tích kỹ thuật chứng khoán Việt Nam.
+Dựa trên tín hiệu MA50 và các chỉ báo kỹ thuật, đánh giá từng cổ phiếu trong watchlist.
+
+QUY TẮC QUAN TRỌNG:
+- MA50 là tín hiệu CHÍNH: Giá trên MA50 → xu hướng TĂNG, tín hiệu MUA tốt
+- Giá dưới MA50 → xu hướng GIẢM, nên CHỜ ĐỢI
+- MA10 cắt lên MA50 (golden_cross) → tín hiệu mua mạnh
+- MA10 cắt xuống MA50 (death_cross) → tín hiệu bán
+- RSI > 70: quá mua (cẩn thận), RSI < 30: quá bán (có thể mua)
+- Volume ratio > 1.5: khối lượng tăng đáng kể
+
+GIÁ MUA GỢI Ý (suggested_buy_price):
+- Nếu signal = BUY: gợi ý giá mua tốt dựa trên MA50, hỗ trợ gần nhất, và giá hiện tại
+  + Giá mua nên <= giá hiện tại (mua ngay) hoặc gần MA50/MA20 (chờ pullback)
+- Nếu signal = WAIT: gợi ý giá mua khi pullback về MA50 hoặc vùng hỗ trợ
+- Nếu signal = SELL: không gợi ý (null)
+- QUAN TRỌNG: Đơn vị giá GIỐNG HỆT dữ liệu đầu vào (VD: current_price=26650 thì suggested_buy_price=27000, KHÔNG PHẢI 27)
+
+Trả về JSON:
+{
+  "results": [
+    {
+      "symbol": "MÃ",
+      "signal": "BUY|WAIT|SELL",
+      "confidence": "high|medium|low",
+      "suggested_buy_price": 27000,
+      "reasoning": "giải thích ngắn gọn 2-3 câu bằng tiếng Việt, bao gồm lý do gợi ý giá mua"
+    }
+  ]
+}
+
+Lưu ý: Viết bằng tiếng Việt. Signal BUY khi giá trên MA50 và các chỉ báo hỗ trợ."""
+
+        result = await self.claude.analyze(prompt, _sanitize({"stocks": valid_signals}))
+
+        try:
+            cleaned = result.strip()
+            if cleaned.startswith("```"):
+                cleaned = cleaned.split("\n", 1)[1] if "\n" in cleaned else cleaned
+                cleaned = cleaned.rsplit("```", 1)[0]
+            ai_results = json.loads(cleaned)
+            ai_map = {r["symbol"]: r for r in ai_results.get("results", [])}
+        except (json.JSONDecodeError, IndexError, KeyError):
+            logger.warning("Failed to parse watchlist review AI response")
+            ai_map = {}
+
+        final_results = []
+        for s in stock_signals:
+            symbol = s["symbol"]
+            ai = ai_map.get(symbol, {})
+            final_results.append({
+                **s,
+                "signal": ai.get("signal", "WAIT" if s.get("price_vs_ma50") == "below" else "BUY"),
+                "confidence": ai.get("confidence", "medium"),
+                "suggested_buy_price": ai.get("suggested_buy_price"),
+                "reasoning": ai.get("reasoning", ""),
+            })
+
+        return {"results": final_results}
+
     async def portfolio_review(self, holdings: list[dict]) -> dict:
         """Review portfolio holdings with AI suggestions."""
         import time

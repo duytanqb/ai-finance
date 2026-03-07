@@ -7,8 +7,11 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 
 from services.ai_workflows import AIWorkflowService
+from services.cache import CacheService
 
 router = APIRouter()
+
+_cache = CacheService()
 
 
 def _get_ai_service() -> AIWorkflowService:
@@ -111,3 +114,44 @@ async def portfolio_review(holdings: list[dict]):
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/watchlist-review")
+async def watchlist_review(body: dict):
+    """AI review of watchlist stocks with MA50 signal analysis."""
+    symbols = body.get("symbols", [])
+    if not symbols:
+        raise HTTPException(status_code=400, detail="symbols required")
+    try:
+        result = await _get_ai_service().watchlist_review(symbols)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/watchlist-signals")
+async def get_watchlist_signals():
+    """Get cached MA50 signals for all watchlist stocks."""
+    from services.cache import CacheService
+    cache = CacheService()
+    keys = cache.keys("watchlist:signal:*")
+    signals = {}
+    for key in keys:
+        symbol = key.replace("watchlist:signal:", "")
+        data = cache.get(key)
+        if data:
+            signals[symbol] = data
+    return {"signals": signals}
+
+
+@router.post("/watchlist-signals")
+async def save_watchlist_signals(body: dict):
+    """Save MA50 signals to cache (called by cron job)."""
+    from services.cache import CacheService
+    cache = CacheService()
+    results = body.get("results", [])
+    for stock in results:
+        symbol = stock.get("symbol", "")
+        if symbol:
+            cache.set(f"watchlist:signal:{symbol}", stock, 86400)
+    return {"ok": True, "count": len(results)}

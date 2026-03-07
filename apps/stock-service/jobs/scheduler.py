@@ -1,8 +1,9 @@
-"""Scheduler for Market Watch pipeline, YouTube digest, and price alert checks.
+"""Scheduler for Market Watch pipeline, YouTube digest, price alerts, and watchlist MA50 checks.
 
 - Market Watch digest: every 6 hours
 - YouTube digest: daily at 06:00 VN time
 - Price alert check: every 30 minutes during market hours (Mon-Fri 9:00-15:00 VN time)
+- Watchlist MA50 signal check: daily at 11:00 VN time (Mon-Fri)
 """
 
 import os
@@ -11,6 +12,7 @@ import httpx
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from jobs.digest import run_and_persist
+from jobs.watchlist_review import check_watchlist_signals
 from jobs.youtube_digest import run_youtube_digest
 
 APP_URL = os.getenv("APP_URL", "http://localhost:3000")
@@ -61,6 +63,16 @@ def start_scheduler():
         name="YouTube Market Digest",
     )
 
+    scheduler.add_job(
+        check_watchlist_signals,
+        "cron",
+        day_of_week="mon-fri",
+        hour=11,
+        minute=0,
+        id="watchlist_ma50_check",
+        name="Watchlist MA50 Signal Check",
+    )
+
     scheduler.start()
-    print("[Scheduler] Started — Market Watch every 6h, YouTube digest at 06:00, Alert check every 30m (market hours)")
+    print("[Scheduler] Started — Market Watch every 6h, YouTube digest at 06:00, Alert check every 30m, Watchlist MA50 at 11:00 (market days)")
     return scheduler

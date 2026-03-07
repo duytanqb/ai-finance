@@ -109,6 +109,15 @@ class CacheService:
             logger.warning("Cache delete error for %s: %s", key, exc)
             return False
 
+    def keys(self, pattern: str) -> list[str]:
+        if not self.available:
+            return []
+        try:
+            return [k.decode() if isinstance(k, bytes) else k for k in self._client.scan_iter(match=pattern, count=100)]  # type: ignore[union-attr]
+        except redis.RedisError as exc:
+            logger.warning("Cache keys error for %s: %s", pattern, exc)
+            return []
+
     def clear(self, pattern: str = "stock:*") -> int:
         if not self.available:
             return 0

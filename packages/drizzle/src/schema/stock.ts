@@ -52,6 +52,8 @@ export const watchlistItem = pgTable(
     symbol: text("symbol").notNull(),
     targetPrice: real("target_price"),
     notes: text("notes"),
+    aiReview: jsonb("ai_review"),
+    aiReviewedAt: timestamp("ai_reviewed_at"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
   (table) => [
