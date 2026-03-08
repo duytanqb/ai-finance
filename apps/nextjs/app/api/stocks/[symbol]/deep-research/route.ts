@@ -1,4 +1,7 @@
+import { db } from "@packages/drizzle";
+import { watchlistItem } from "@packages/drizzle/schema";
 import { NextResponse } from "next/server";
+import { authGuard } from "@/adapters/guards/auth.guard";
 
 const STOCK_SERVICE_URL =
   process.env.STOCK_SERVICE_URL ||
@@ -12,6 +15,22 @@ interface RouteParams {
 export async function POST(_req: Request, { params }: RouteParams) {
   try {
     const { symbol } = await params;
+
+    // Auto-add to watchlist for MA50 tracking
+    const guard = await authGuard();
+    if (guard.authenticated) {
+      const id = crypto.randomUUID();
+      db.insert(watchlistItem)
+        .values({
+          id,
+          userId: guard.session.user.id,
+          symbol: symbol.toUpperCase(),
+        })
+        .onConflictDoNothing()
+        .then(() => {})
+        .catch(() => {});
+    }
+
     const response = await fetch(
       `${STOCK_SERVICE_URL}/api/ai/deep-research/${encodeURIComponent(symbol)}`,
       { method: "POST" },

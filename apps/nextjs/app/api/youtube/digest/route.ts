@@ -1,5 +1,9 @@
 import { db, desc } from "@packages/drizzle";
-import { youtubeDigest, youtubeVideo } from "@packages/drizzle/schema";
+import {
+  watchlistItem,
+  youtubeDigest,
+  youtubeVideo,
+} from "@packages/drizzle/schema";
 import { NextResponse } from "next/server";
 import { stockServicePost } from "@/lib/stock-service";
 
@@ -62,6 +66,30 @@ export async function POST(request: Request) {
         digest: body.digest,
         videosProcessed: (body.videos_processed as number) || 0,
       });
+
+      // Auto-add YouTube consensus stocks to all users' watchlists
+      const digest = body.digest as Record<string, unknown>;
+      const consensusStocks = (digest.consensus_stocks || []) as {
+        symbol: string;
+      }[];
+      if (consensusStocks.length > 0) {
+        const { user } = await import("@packages/drizzle/schema");
+        const users = await db.select({ id: user.id }).from(user);
+        const inserts = users.flatMap((u) =>
+          consensusStocks
+            .filter((s) => s.symbol)
+            .map((s) => ({
+              id: crypto.randomUUID(),
+              userId: u.id,
+              symbol: s.symbol.toUpperCase(),
+              notes: "YouTube consensus",
+            })),
+        );
+        if (inserts.length > 0) {
+          await db.insert(watchlistItem).values(inserts).onConflictDoNothing();
+        }
+      }
+
       return NextResponse.json({ ok: true });
     }
 
