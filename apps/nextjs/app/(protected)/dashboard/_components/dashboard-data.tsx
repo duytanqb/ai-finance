@@ -406,7 +406,7 @@ function TopStocksTable({ stocks }: { stocks: TopStock[] }) {
                     </Link>
                   </td>
                   <td className="py-2 text-right font-mono text-zinc-700 dark:text-zinc-300">
-                    {(s.match_price * 1000).toLocaleString("vi-VN")}
+                    {s.match_price.toLocaleString("vi-VN")}
                   </td>
                   <td
                     className={`py-2 text-right font-mono font-medium ${

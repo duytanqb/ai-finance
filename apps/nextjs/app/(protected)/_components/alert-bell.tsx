@@ -89,7 +89,7 @@ export function AlertBell() {
       </button>
 
       {open && (
-        <div className="absolute left-0 top-full mt-2 w-80 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 shadow-lg z-50">
+        <div className="absolute right-0 top-full mt-2 w-80 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 shadow-lg z-50">
           <div className="flex items-center justify-between p-3 border-b border-zinc-100 dark:border-zinc-800">
             <span className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
               Cảnh báo giá
