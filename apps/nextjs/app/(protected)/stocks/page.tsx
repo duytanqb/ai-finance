@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useMarketRefresh } from "@/lib/use-market-refresh";
 
 interface StockItem {
   symbol: string;
@@ -120,6 +121,8 @@ export default function StocksPage() {
     fetchPopularStocks();
     fetchTracked();
   }, [fetchPopularStocks, fetchTracked]);
+
+  useMarketRefresh(fetchTracked);
 
   const searchStocks = useCallback(
     async (query: string) => {

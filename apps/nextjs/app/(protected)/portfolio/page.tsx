@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
+import { useMarketRefresh } from "@/lib/use-market-refresh";
 
 interface Holding {
   id: string;
@@ -244,6 +245,8 @@ export default function PortfolioPage() {
   useEffect(() => {
     fetchHoldings();
   }, [fetchHoldings]);
+
+  useMarketRefresh(fetchHoldings);
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();

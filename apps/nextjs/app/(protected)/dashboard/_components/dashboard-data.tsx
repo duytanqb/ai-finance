@@ -11,13 +11,16 @@ import {
 import {
   BarChart3,
   Briefcase,
+  ExternalLink,
   Eye,
   Loader2,
+  Newspaper,
   Sparkles,
   TrendingUp,
 } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useMarketRefresh } from "@/lib/use-market-refresh";
 
 interface DashboardData {
   portfolio: { count: number };
@@ -54,6 +57,46 @@ interface TopStock {
   accumulated_value: number;
 }
 
+interface NewsItem {
+  title: string;
+  summary: string;
+  impact: string;
+  related_sectors: string[];
+  url: string;
+  source: string;
+  published_at: string;
+}
+
+interface MarketNewsData {
+  market_mood: string | null;
+  market_summary: string | null;
+  generated_at: string | null;
+  important_news: NewsItem[];
+}
+
+const MOOD_CONFIG: Record<string, { label: string; color: string }> = {
+  positive: {
+    label: "Tích cực",
+    color:
+      "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400",
+  },
+  negative: {
+    label: "Tiêu cực",
+    color: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
+  },
+  neutral: {
+    label: "Trung tính",
+    color:
+      "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400",
+  },
+};
+
+const IMPACT_DOT: Record<string, string> = {
+  positive: "bg-emerald-500",
+  negative: "bg-red-500",
+  neutral: "bg-amber-400",
+};
+
 function formatAge(dateStr: string): string {
   const diffMs = Date.now() - new Date(dateStr).getTime();
   const hours = Math.floor(diffMs / (1000 * 60 * 60));
@@ -79,34 +122,42 @@ export function DashboardData() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [market, setMarket] = useState<MarketData | null>(null);
   const [topStocks, setTopStocks] = useState<TopStock[]>([]);
+  const [marketNews, setMarketNews] = useState<MarketNewsData | null>(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    async function fetchDashboard() {
-      try {
-        const [dashRes, marketRes, topRes] = await Promise.allSettled([
-          fetch("/api/dashboard"),
-          fetch("/api/dashboard/market"),
-          fetch("/api/dashboard/top-stocks"),
-        ]);
-        if (dashRes.status === "fulfilled" && dashRes.value.ok) {
-          setData(await dashRes.value.json());
-        }
-        if (marketRes.status === "fulfilled" && marketRes.value.ok) {
-          setMarket(await marketRes.value.json());
-        }
-        if (topRes.status === "fulfilled" && topRes.value.ok) {
-          const result = await topRes.value.json();
-          setTopStocks(result.data ?? []);
-        }
-      } catch {
-        // fallback to empty state
-      } finally {
-        setLoading(false);
+  const fetchDashboard = useCallback(async () => {
+    try {
+      const [dashRes, marketRes, topRes, newsRes] = await Promise.allSettled([
+        fetch("/api/dashboard"),
+        fetch("/api/dashboard/market"),
+        fetch("/api/dashboard/top-stocks"),
+        fetch("/api/dashboard/news"),
+      ]);
+      if (dashRes.status === "fulfilled" && dashRes.value.ok) {
+        setData(await dashRes.value.json());
       }
+      if (marketRes.status === "fulfilled" && marketRes.value.ok) {
+        setMarket(await marketRes.value.json());
+      }
+      if (topRes.status === "fulfilled" && topRes.value.ok) {
+        const result = await topRes.value.json();
+        setTopStocks(result.data ?? []);
+      }
+      if (newsRes.status === "fulfilled" && newsRes.value.ok) {
+        setMarketNews(await newsRes.value.json());
+      }
+    } catch {
+      // fallback to empty state
+    } finally {
+      setLoading(false);
     }
-    fetchDashboard();
   }, []);
+
+  useEffect(() => {
+    fetchDashboard();
+  }, [fetchDashboard]);
+
+  useMarketRefresh(fetchDashboard);
 
   if (loading) {
     return (
@@ -145,6 +196,12 @@ export function DashboardData() {
       </div>
 
       {topStocks.length > 0 && <TopStocksTable stocks={topStocks} />}
+
+      {marketNews &&
+        marketNews.important_news &&
+        marketNews.important_news.length > 0 && (
+          <MarketNewsSection news={marketNews} />
+        )}
 
       <div className="grid gap-4 md:grid-cols-3">
         <QuickAction
@@ -458,5 +515,102 @@ function QuickAction({
       </h3>
       <p className="text-sm text-zinc-500 mt-1">{description}</p>
     </Link>
+  );
+}
+
+function MarketNewsSection({ news }: { news: MarketNewsData }) {
+  const mood = MOOD_CONFIG[news.market_mood ?? "neutral"] ?? {
+    label: "Trung tính",
+    color:
+      "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400",
+  };
+
+  return (
+    <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-5">
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          <Newspaper className="h-4 w-4 text-zinc-400" />
+          <h2 className="font-semibold text-zinc-900 dark:text-zinc-100">
+            Tin tức thị trường
+          </h2>
+          <span
+            className={`text-xs font-medium px-2 py-0.5 rounded-full ${mood.color}`}
+          >
+            {mood.label}
+          </span>
+        </div>
+        <div className="flex items-center gap-2">
+          {news.generated_at && (
+            <span className="text-xs text-zinc-400">
+              {formatAge(news.generated_at)}
+            </span>
+          )}
+          <Link
+            href="/market-watch"
+            className="text-xs text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
+          >
+            Xem chi tiết
+          </Link>
+        </div>
+      </div>
+
+      {news.market_summary && (
+        <p className="text-sm text-zinc-600 dark:text-zinc-400 mb-4 leading-relaxed">
+          {news.market_summary}
+        </p>
+      )}
+
+      <div className="space-y-3">
+        {news.important_news.map((item, i) => (
+          <div
+            key={`${item.source}-${i}`}
+            className="flex items-start gap-3 p-3 rounded-lg bg-zinc-50 dark:bg-zinc-900/50"
+          >
+            <span
+              className={`mt-1.5 h-2 w-2 rounded-full flex-shrink-0 ${IMPACT_DOT[item.impact] ?? IMPACT_DOT.neutral}`}
+            />
+            <div className="flex-1 min-w-0">
+              <div className="flex items-start justify-between gap-2">
+                <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100 leading-snug">
+                  {item.url ? (
+                    <a
+                      href={item.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+                    >
+                      {item.title}
+                      <ExternalLink className="inline h-3 w-3 ml-1 opacity-40" />
+                    </a>
+                  ) : (
+                    item.title
+                  )}
+                </p>
+              </div>
+              {item.summary && (
+                <p className="text-xs text-zinc-500 mt-1 leading-relaxed">
+                  {item.summary}
+                </p>
+              )}
+              <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                {item.source && (
+                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-200 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400">
+                    {item.source}
+                  </span>
+                )}
+                {item.related_sectors?.map((sector) => (
+                  <span
+                    key={sector}
+                    className="text-[10px] px-1.5 py-0.5 rounded bg-violet-100 dark:bg-violet-900/30 text-violet-600 dark:text-violet-400"
+                  >
+                    {sector}
+                  </span>
+                ))}
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }

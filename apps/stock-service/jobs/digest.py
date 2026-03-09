@@ -184,6 +184,7 @@ async def _discover_sectors() -> tuple[dict, list[dict]]:
 
     Returns:
         Tuple of (sector_analysis, headlines) — headlines are kept for Stage 3.
+        sector_analysis includes enriched `important_news` with article URLs.
     """
     api_key = os.getenv("ANTHROPIC_API_KEY", "")
     if not api_key:
@@ -202,6 +203,36 @@ async def _discover_sectors() -> tuple[dict, list[dict]]:
     ai = AIWorkflowService()
     news_data = [{"title": h["title"], "snippet": h.get("snippet", "")} for h in headlines]
     result = await ai.analyze_sectors_from_news(news_data)
+
+    # Enrich AI-selected important_news with full article data (url, source, published_at)
+    important_news = result.get("important_news", [])
+    enriched_news = []
+    for item in important_news:
+        idx = item.get("index", -1)
+        if 0 <= idx < len(headlines):
+            article = headlines[idx]
+            enriched_news.append({
+                "title": item.get("title", article.get("title", "")),
+                "summary": item.get("summary", ""),
+                "impact": item.get("impact", "neutral"),
+                "related_sectors": item.get("related_sectors", []),
+                "url": article.get("url", ""),
+                "source": article.get("source", ""),
+                "published_at": article.get("published_at", ""),
+            })
+        else:
+            enriched_news.append({
+                "title": item.get("title", ""),
+                "summary": item.get("summary", ""),
+                "impact": item.get("impact", "neutral"),
+                "related_sectors": item.get("related_sectors", []),
+                "url": "",
+                "source": "",
+                "published_at": "",
+            })
+    result["important_news"] = enriched_news
+    print(f"  AI selected {len(enriched_news)} important headlines")
+
     return result, news_data
 
 
@@ -335,4 +366,5 @@ def _build_digest(
         "top_picks": top_picks,
         "total_scanned": stage_counts.get("stage2", len(candidates)),
         "pipeline_stages": stage_counts,
+        "important_news": sector_analysis.get("important_news", []) if sector_analysis else [],
     }

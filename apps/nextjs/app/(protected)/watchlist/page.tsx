@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useMarketRefresh } from "@/lib/use-market-refresh";
 
 interface WatchlistItem {
   id: string;
@@ -348,6 +349,8 @@ export default function WatchlistPage() {
     fetchWatchlist();
     fetchCachedSignals();
   }, [fetchWatchlist, fetchCachedSignals]);
+
+  useMarketRefresh(fetchWatchlist);
 
   const handleAIReview = async () => {
     if (items.length === 0) return;

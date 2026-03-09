@@ -364,6 +364,7 @@ IMPORTANT:
 - All text in Vietnamese
 - If no clear sector signal, return fewer sectors
 - Confidence > 70 = strong signal, 50-70 = moderate, < 50 = weak
+- Also pick the 5-8 most important/market-moving headlines and write a brief summary for each
 
 Respond in JSON:
 {
@@ -376,7 +377,16 @@ Respond in JSON:
     }
   ],
   "market_mood": "positive|neutral|negative",
-  "market_summary": "2-3 câu tóm tắt tâm lý thị trường bằng tiếng Việt"
+  "market_summary": "2-3 câu tóm tắt tâm lý thị trường bằng tiếng Việt",
+  "important_news": [
+    {
+      "index": 0,
+      "title": "Tiêu đề tin tức",
+      "summary": "1-2 câu tóm tắt tác động đến thị trường chứng khoán",
+      "impact": "positive|negative|neutral",
+      "related_sectors": ["Ngân hàng"]
+    }
+  ]
 }"""
 
 NEWS_STOCK_SELECTION_PROMPT = """You are a Vietnam stock market analyst.

@@ -75,6 +75,7 @@ export const marketWatchDigest = pgTable(
     sectorAnalysis: jsonb("sector_analysis"),
     sectorGroups: jsonb("sector_groups"),
     pipelineType: text("pipeline_type"),
+    headlines: jsonb("headlines"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
   (table) => [index("market_watch_digest_created_idx").on(table.createdAt)],

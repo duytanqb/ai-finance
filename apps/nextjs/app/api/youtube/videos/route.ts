@@ -6,6 +6,8 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const idsOnly = searchParams.get("ids_only") === "true";
 
+  const recent = searchParams.get("recent") === "true";
+
   try {
     if (idsOnly) {
       const rows = await db
@@ -13,6 +15,27 @@ export async function GET(request: Request) {
         .from(youtubeVideo);
       return NextResponse.json({
         video_ids: rows.map((r) => r.videoId),
+      });
+    }
+
+    if (recent) {
+      const rows = await db
+        .select()
+        .from(youtubeVideo)
+        .orderBy(desc(youtubeVideo.processedAt))
+        .limit(20);
+      return NextResponse.json({
+        videos: rows
+          .filter((r) => r.summary)
+          .map((r) => ({
+            video_id: r.videoId,
+            title: r.title,
+            channel_name: r.channelName,
+            published_at: r.publishedAt?.toISOString(),
+            thumbnail_url: r.thumbnailUrl,
+            duration_minutes: r.durationMinutes,
+            ...(r.summary as Record<string, unknown>),
+          })),
       });
     }
 

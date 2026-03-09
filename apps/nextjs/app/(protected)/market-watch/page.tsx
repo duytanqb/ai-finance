@@ -8,11 +8,11 @@ import {
   ExternalLink,
   Loader2,
   Newspaper,
-  RefreshCw,
   Shield,
   Sparkles,
   TrendingUp,
   Users,
+  Youtube,
 } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -607,6 +607,7 @@ export default function MarketWatchPage() {
     useState<PipelineProgress | null>(null);
   const [ytDigest, setYtDigest] = useState<YouTubeDigestData | null>(null);
   const [ytExpanded, setYtExpanded] = useState(false);
+  const [ytRefreshing, setYtRefreshing] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pollStartRef = useRef<number>(0);
 
@@ -728,6 +729,32 @@ export default function MarketWatchPage() {
     }
   }, [stopPolling, pollForResults]);
 
+  const handleYoutubeRefresh = useCallback(async () => {
+    setYtRefreshing(true);
+    try {
+      const res = await fetch("/api/youtube/digest", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      if (!res.ok) throw new Error(`Server error: ${res.status}`);
+      // YouTube pipeline runs in background on Python side
+      // Poll for result after a delay
+      setTimeout(async () => {
+        try {
+          const r = await fetch("/api/youtube/digest");
+          const data = await r.json();
+          if (data.digest) setYtDigest(data as YouTubeDigestData);
+        } catch {
+          // silent
+        }
+        setYtRefreshing(false);
+      }, 60_000); // Check after 1 minute
+    } catch {
+      setYtRefreshing(false);
+    }
+  }, []);
+
   useEffect(() => {
     fetchDigest();
     fetch("/api/youtube/digest")
@@ -742,10 +769,13 @@ export default function MarketWatchPage() {
   const hasSectorData =
     digest?.sector_analysis && digest.sector_analysis.length > 0;
 
-  // Group picks by sector
+  // Group picks by sector (exclude AVOID stocks)
+  const visiblePicks = digest
+    ? digest.top_picks.filter((p) => p.action !== "AVOID")
+    : [];
   const picksBySector: Record<string, MarketPick[]> = {};
   if (hasSectorData && digest) {
-    for (const pick of digest.top_picks) {
+    for (const pick of visiblePicks) {
       const sector = pick.sector_name || "Khác";
       if (!picksBySector[sector]) picksBySector[sector] = [];
       picksBySector[sector].push(pick);
@@ -763,17 +793,34 @@ export default function MarketWatchPage() {
             Phân tích dòng tiền theo ngành — phát hiện cơ hội đầu tư
           </p>
         </div>
-        <button
-          type="button"
-          onClick={handleRefresh}
-          disabled={refreshing || loading}
-          className="flex items-center gap-1.5 text-xs text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300 disabled:opacity-50 px-3 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors"
-        >
-          <RefreshCw
-            className={`h-3 w-3 ${refreshing ? "animate-spin" : ""}`}
-          />
-          {refreshing ? "Đang phân tích..." : "Làm mới"}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={handleRefresh}
+            disabled={refreshing || loading}
+            className="flex items-center gap-1.5 text-xs text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300 disabled:opacity-50 px-3 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors"
+          >
+            {refreshing ? (
+              <Loader2 className="h-3 w-3 animate-spin" />
+            ) : (
+              <Newspaper className="h-3 w-3" />
+            )}
+            {refreshing ? "Đang phân tích..." : "Cập nhật tin tức"}
+          </button>
+          <button
+            type="button"
+            onClick={handleYoutubeRefresh}
+            disabled={ytRefreshing}
+            className="flex items-center gap-1.5 text-xs text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300 disabled:opacity-50 px-3 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors"
+          >
+            {ytRefreshing ? (
+              <Loader2 className="h-3 w-3 animate-spin" />
+            ) : (
+              <Youtube className="h-3 w-3" />
+            )}
+            {ytRefreshing ? "Đang cập nhật..." : "Cập nhật YouTube"}
+          </button>
+        </div>
       </div>
 
       {loading && !digest && (
@@ -824,7 +871,7 @@ export default function MarketWatchPage() {
           </p>
           <button
             type="button"
-            onClick={handleRefresh}
+            onClick={fetchDigest}
             className="mt-3 text-xs text-amber-700 dark:text-amber-400 underline hover:no-underline"
           >
             Thử lại
@@ -1097,17 +1144,18 @@ export default function MarketWatchPage() {
             <h2 className="font-semibold text-zinc-900 dark:text-zinc-100 mb-3 flex items-center gap-2">
               <TrendingUp className="h-4 w-4" />
               Cổ phiếu đáng chú ý
-              {digest.top_picks.length > 0 && (
+              {visiblePicks.length > 0 && (
                 <span className="text-xs font-normal text-zinc-400">
-                  ({digest.top_picks.length} mã)
+                  ({visiblePicks.length} mã)
                 </span>
               )}
             </h2>
 
-            {digest.top_picks.length === 0 ? (
+            {visiblePicks.length === 0 ? (
               <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-8 text-center">
                 <p className="text-sm text-zinc-500">
-                  Chưa có dữ liệu. Nhấn &quot;Làm mới&quot; để chạy phân tích.
+                  Chưa có dữ liệu. Nhấn &quot;Cập nhật tin tức&quot; để chạy
+                  phân tích.
                 </p>
               </div>
             ) : hasSectorData ? (
@@ -1146,7 +1194,7 @@ export default function MarketWatchPage() {
             ) : (
               // Flat list (backward compatible)
               <div className="space-y-3">
-                {digest.top_picks.map((pick) => (
+                {visiblePicks.map((pick) => (
                   <StockCard key={pick.symbol} pick={pick} />
                 ))}
               </div>

@@ -21,9 +21,11 @@ ATOM_NS = "{http://www.w3.org/2005/Atom}"
 MEDIA_NS = "{http://search.yahoo.com/mrss/}"
 
 CHANNELS: list[dict] = [
-    {"channel_id": "UCjuAKSBXXkl2T_C40mgpmLg", "name": "Ichimoku Đầu Tư", "category": "technical"},
+    {"channel_id": "UCnMxLNXPsYJmdMwP4WxhANw", "name": "Ichimoku Đầu Tư", "category": "technical"},
     {"channel_id": "UCt7vdOZp7dXqnJc14lyW7Lg", "name": "NVT Vietnam", "category": "analysis"},
     {"channel_id": "UCu3q59AXNNDGxT9LUBQeELA", "name": "TuaTS", "category": "analysis"},
+    {"channel_id": "UC8EpusiPDtdVN_WRGvhBBqg", "name": "Chứng khoán TVI", "category": "analysis"},
+    {"channel_id": "UCDJIGO_3ycJAKLPv7Yh396A", "name": "Thai Pham", "category": "macro"},
 ]
 
 

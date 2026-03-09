@@ -14,6 +14,7 @@ interface DigestPayload {
   sector_analysis?: unknown[];
   sector_groups?: Record<string, string[]>;
   pipeline_type?: string;
+  important_news?: unknown[];
 }
 
 async function saveDigest(data: DigestPayload) {
@@ -27,6 +28,7 @@ async function saveDigest(data: DigestPayload) {
     sectorAnalysis: data.sector_analysis ?? null,
     sectorGroups: data.sector_groups ?? null,
     pipelineType: data.pipeline_type ?? null,
+    headlines: data.important_news ?? null,
   });
 }
 
@@ -41,6 +43,7 @@ function formatDigest(row: typeof marketWatchDigest.$inferSelect) {
     sector_analysis: row.sectorAnalysis,
     sector_groups: row.sectorGroups,
     pipeline_type: row.pipelineType,
+    important_news: row.headlines,
     cached: true,
   };
 }

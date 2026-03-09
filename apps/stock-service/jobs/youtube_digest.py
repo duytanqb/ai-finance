@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 APP_URL = os.environ.get("APP_URL", "http://localhost:3000")
 
 
-async def run_youtube_digest(since_hours: int = 48) -> dict | None:
+async def run_youtube_digest(since_hours: int = 72) -> dict | None:
     """Run the full YouTube digest pipeline."""
     from routers.youtube import complete_stage, update_progress, _start_stage, set_pipeline_status
     from services.ai_workflows import AIWorkflowService
@@ -44,14 +44,35 @@ async def run_youtube_digest(since_hours: int = 48) -> dict | None:
         complete_stage(2, "Thu thập video mới", f"Tìm thấy {len(new_videos)} video mới có transcript")
         logger.info("[YouTube] Stage 2: %d new videos with transcripts", len(new_videos))
 
+        ai = AIWorkflowService()
+
         if not new_videos:
-            logger.info("[YouTube] No new videos found, skipping AI analysis")
+            logger.info("[YouTube] No new videos found, regenerating digest from recent DB videos")
+            # Regenerate digest from recent videos already in DB
+            existing_summaries = await _fetch_recent_video_summaries()
+            if not existing_summaries:
+                logger.info("[YouTube] No existing videos in DB either, skipping")
+                set_pipeline_status("completed")
+                return {"date": now.strftime("%Y-%m-%d"), "videos_processed": 0}
+
+            _start_stage(4, "Tổng hợp nhận định")
+            update_progress(4, "Tổng hợp nhận định", "AI đang cập nhật nhận định từ video gần đây...")
+            digest = await ai.youtube_market_digest(existing_summaries)
+            complete_stage(4, "Tổng hợp nhận định", "Hoàn thành tổng hợp thị trường")
+
+            digest_payload = {
+                "date": now.strftime("%Y-%m-%d"),
+                "generated_at": now.isoformat(),
+                "digest": digest,
+                "videos_processed": len(existing_summaries),
+            }
+            await _save_digest(digest_payload)
             set_pipeline_status("completed")
-            return {"date": now.strftime("%Y-%m-%d"), "videos_processed": 0}
+            logger.info("[YouTube] Digest regenerated from %d existing videos", len(existing_summaries))
+            return digest_payload
 
         # Stage 3: AI summarize each video
         _start_stage(3, "AI tóm tắt video")
-        ai = AIWorkflowService()
         video_summaries = []
         for i, video in enumerate(new_videos):
             update_progress(
@@ -67,12 +88,14 @@ async def run_youtube_digest(since_hours: int = 48) -> dict | None:
 
         complete_stage(3, "AI tóm tắt video", f"Đã tóm tắt {len(video_summaries)}/{len(new_videos)} video")
 
-        # Stage 4: Cross-reference into unified digest
+        # Stage 4: Cross-reference into unified digest (use new + recent existing videos)
         _start_stage(4, "Tổng hợp nhận định")
         update_progress(4, "Tổng hợp nhận định", "AI đang đối chiếu nhận định từ các kênh...")
-        digest = await ai.youtube_market_digest(video_summaries)
+        existing_summaries = await _fetch_recent_video_summaries()
+        all_summaries = video_summaries + [s for s in existing_summaries if s.get("video_id") not in {v.get("video_id") for v in video_summaries}]
+        digest = await ai.youtube_market_digest(all_summaries)
         complete_stage(4, "Tổng hợp nhận định", "Hoàn thành tổng hợp thị trường")
-        logger.info("[YouTube] Stage 4: Digest generated")
+        logger.info("[YouTube] Stage 4: Digest generated from %d videos (%d new + %d existing)", len(all_summaries), len(video_summaries), len(existing_summaries))
 
         # Stage 5: Save to DB
         _start_stage(5, "Lưu kết quả")
@@ -87,7 +110,7 @@ async def run_youtube_digest(since_hours: int = 48) -> dict | None:
             "date": now.strftime("%Y-%m-%d"),
             "generated_at": now.isoformat(),
             "digest": digest,
-            "videos_processed": len(video_summaries),
+            "videos_processed": len(all_summaries),
             "video_summaries": video_summaries,
         }
         await _save_digest(digest_payload)
@@ -101,6 +124,19 @@ async def run_youtube_digest(since_hours: int = 48) -> dict | None:
         logger.error("[YouTube] Pipeline failed: %s", e)
         set_pipeline_status("error", str(e))
         return None
+
+
+async def _fetch_recent_video_summaries() -> list[dict]:
+    """Fetch recent video summaries from DB for digest regeneration."""
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            resp = await client.get(f"{APP_URL}/api/youtube/videos?recent=true")
+            if resp.status_code == 200:
+                data = resp.json()
+                return data.get("videos", [])
+    except Exception as e:
+        logger.warning("[YouTube] Failed to fetch recent videos: %s", e)
+    return []
 
 
 async def _fetch_processed_video_ids() -> set[str]:

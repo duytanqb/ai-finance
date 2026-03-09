@@ -1,0 +1,1 @@
+ALTER TABLE "market_watch_digest" ADD COLUMN "headlines" jsonb;
