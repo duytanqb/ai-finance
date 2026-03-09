@@ -197,11 +197,9 @@ export function DashboardData() {
 
       {topStocks.length > 0 && <TopStocksTable stocks={topStocks} />}
 
-      {marketNews &&
-        marketNews.important_news &&
-        marketNews.important_news.length > 0 && (
-          <MarketNewsSection news={marketNews} />
-        )}
+      {marketNews?.important_news && marketNews.important_news.length > 0 && (
+        <MarketNewsSection news={marketNews} />
+      )}
 
       <div className="grid gap-4 md:grid-cols-3">
         <QuickAction
