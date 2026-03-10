@@ -7,7 +7,6 @@ import {
   ArrowUpRight,
   BookOpen,
   Check,
-  Clock,
   Loader2,
   Pencil,
   Plus,
@@ -17,7 +16,7 @@ import {
   X,
 } from "lucide-react";
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { useMarketRefresh } from "@/lib/use-market-refresh";
 
 interface Holding {
@@ -100,6 +99,7 @@ export default function PortfolioPage() {
   const [loading, setLoading] = useState(true);
   const [showAddForm, setShowAddForm] = useState(false);
   const [adding, setAdding] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editData, setEditData] = useState({
@@ -114,7 +114,7 @@ export default function PortfolioPage() {
   const [aiReview, setAiReview] = useState<AIReviewResult | null>(null);
   const [aiReviewAge, setAiReviewAge] = useState<string | null>(null);
   const [reviewing, setReviewing] = useState(false);
-  const [noResearchSymbols, setNoResearchSymbols] = useState<string[]>([]);
+  const [expandedAiId, setExpandedAiId] = useState<string | null>(null);
   const [staleResearchSymbols, setStaleResearchSymbols] = useState<string[]>(
     [],
   );
@@ -242,11 +242,61 @@ export default function PortfolioPage() {
     }
   }, []);
 
+  const handleRefreshPrices = useCallback(async () => {
+    if (holdings.length === 0) return;
+    setRefreshing(true);
+    const priceMap: Record<
+      string,
+      { price: number; change: number; changePercent: number }
+    > = {};
+    await Promise.allSettled(
+      holdings.map(async (h) => {
+        try {
+          const res = await fetch(`/api/stocks/${h.symbol}`);
+          if (res.ok) {
+            const data = await res.json();
+            const board = Array.isArray(data) ? data[0] : data;
+            const bd = board?.data
+              ? Array.isArray(board.data)
+                ? board.data[0]
+                : board.data
+              : board;
+            if (bd && !bd.error && bd.match_price) {
+              priceMap[h.symbol] = {
+                price: bd.match_price,
+                change: bd.change || 0,
+                changePercent: bd.pct_change || 0,
+              };
+            }
+          }
+        } catch {
+          // skip
+        }
+      }),
+    );
+    if (Object.keys(priceMap).length > 0) {
+      setHoldings((prev) =>
+        prev.map((h) => {
+          const p = priceMap[h.symbol];
+          return p
+            ? {
+                ...h,
+                currentPrice: p.price,
+                change: p.change,
+                changePercent: p.changePercent,
+              }
+            : h;
+        }),
+      );
+    }
+    setRefreshing(false);
+  }, [holdings]);
+
   useEffect(() => {
     fetchHoldings();
   }, [fetchHoldings]);
 
-  useMarketRefresh(fetchHoldings);
+  useMarketRefresh(handleRefreshPrices);
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -380,7 +430,6 @@ export default function PortfolioPage() {
       const review = data.review as AIReviewResult;
       setAiReview(review);
       setAiReviewAge(new Date().toISOString());
-      setNoResearchSymbols(data.noResearchSymbols || []);
 
       // Auto-save SL/TP from AI suggestions to holdings
       if (review?.holdings) {
@@ -493,29 +542,15 @@ export default function PortfolioPage() {
         <div className="flex gap-2">
           <button
             type="button"
-            onClick={handleAIReview}
-            disabled={reviewing || holdings.length === 0}
-            className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900 hover:opacity-80 transition-opacity disabled:opacity-50"
+            onClick={handleRefreshPrices}
+            disabled={refreshing || holdings.length === 0}
+            className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg border border-zinc-200 dark:border-zinc-700 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors disabled:opacity-50"
           >
-            {reviewing ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : aiReviewAge ? (
-              <RefreshCw className="h-3.5 w-3.5" />
-            ) : (
-              <Sparkles className="h-3.5 w-3.5" />
-            )}
-            {reviewing
-              ? "Đang phân tích..."
-              : aiReviewAge
-                ? "Re-review"
-                : "AI Review"}
+            <RefreshCw
+              className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`}
+            />
+            Cập nhật giá
           </button>
-          {aiReviewAge && !reviewing && (
-            <span className="inline-flex items-center gap-1 text-xs text-zinc-400">
-              <Clock className="h-3 w-3" />
-              {formatAge(aiReviewAge)}
-            </span>
-          )}
           <button
             type="button"
             onClick={() => setShowAddForm(true)}
@@ -714,92 +749,13 @@ export default function PortfolioPage() {
         </div>
       )}
 
-      {/* AI Review Result */}
+      {/* AI Review loading (global) */}
       {reviewing && (
         <div className="rounded-xl border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/30 p-5 flex items-center gap-3">
           <Loader2 className="h-5 w-5 animate-spin text-blue-500" />
           <span className="text-sm text-blue-600 dark:text-blue-400">
             AI đang phân tích danh mục của bạn...
           </span>
-        </div>
-      )}
-
-      {aiReview && (
-        <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-5 space-y-4">
-          <div className="flex items-center gap-2">
-            <Sparkles className="h-4 w-4 text-amber-500" />
-            <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
-              AI Portfolio Review
-            </h2>
-          </div>
-          <p className="text-sm text-zinc-600 dark:text-zinc-400 leading-relaxed">
-            {aiReview.portfolio_summary}
-          </p>
-          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-            {aiReview.holdings.map((h) => (
-              <div
-                key={h.symbol}
-                className="rounded-lg border border-zinc-100 dark:border-zinc-800 p-3"
-              >
-                <div className="flex items-center gap-2 mb-1.5">
-                  <Link
-                    href={`/stocks/${h.symbol}`}
-                    className="font-bold text-sm text-zinc-900 dark:text-zinc-100 hover:underline"
-                  >
-                    {h.symbol}
-                  </Link>
-                  <span
-                    className={`text-xs font-bold px-2 py-0.5 rounded-full ${ACTION_COLORS[h.action] || ACTION_COLORS.HOLD}`}
-                  >
-                    {h.action === "ADD_MORE"
-                      ? "MUA THÊM"
-                      : h.action === "SELL"
-                        ? "BÁN"
-                        : "GIỮ"}
-                  </span>
-                  {h.urgency === "high" && (
-                    <span className="text-xs text-red-500 font-medium">
-                      Khẩn cấp
-                    </span>
-                  )}
-                </div>
-                <p className="text-xs text-zinc-500 leading-relaxed">
-                  {h.reasoning}
-                </p>
-                {(h.suggested_stop_loss ||
-                  h.suggested_take_profit ||
-                  h.dividend_yield) && (
-                  <div className="flex flex-wrap gap-2 mt-2">
-                    {h.suggested_stop_loss && (
-                      <span className="text-[10px] font-mono bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 px-1.5 py-0.5 rounded">
-                        SL: {formatVND(h.suggested_stop_loss)}
-                      </span>
-                    )}
-                    {h.suggested_take_profit && (
-                      <span className="text-[10px] font-mono bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 px-1.5 py-0.5 rounded">
-                        TP: {formatVND(h.suggested_take_profit)}
-                      </span>
-                    )}
-                    {h.dividend_yield != null && h.dividend_yield > 0 && (
-                      <span className="text-[10px] font-mono bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 px-1.5 py-0.5 rounded">
-                        Cổ tức: {(h.dividend_yield * 100).toFixed(1)}%
-                      </span>
-                    )}
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-          {noResearchSymbols.length > 0 && (
-            <div className="rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 px-3 py-2 flex items-center gap-2">
-              <AlertTriangle className="h-3.5 w-3.5 text-amber-500 shrink-0" />
-              <p className="text-xs text-amber-600 dark:text-amber-400">
-                {noResearchSymbols.length} mã chưa có Deep Research (
-                {noResearchSymbols.join(", ")}). Bấm &quot;Deep Research&quot;
-                tại trang chi tiết cổ phiếu để có phân tích chính xác hơn.
-              </p>
-            </div>
-          )}
         </div>
       )}
 
@@ -834,12 +790,10 @@ export default function PortfolioPage() {
                   <th className="text-right text-xs font-medium text-zinc-500 uppercase tracking-wide px-5 py-3">
                     Cổ tức
                   </th>
-                  {aiReview && (
-                    <th className="text-center text-xs font-medium text-zinc-500 uppercase tracking-wide px-5 py-3">
-                      AI
-                    </th>
-                  )}
-                  <th className="text-center text-xs font-medium text-zinc-500 uppercase tracking-wide px-3 py-3 w-20" />
+                  <th className="text-center text-xs font-medium text-zinc-500 uppercase tracking-wide px-3 py-3">
+                    AI
+                  </th>
+                  <th className="text-center text-xs font-medium text-zinc-500 uppercase tracking-wide px-3 py-3 w-24" />
                 </tr>
               </thead>
               <tbody>
@@ -855,187 +809,183 @@ export default function PortfolioPage() {
                   const aiAction = getAIAction(h.symbol);
 
                   return (
-                    <tr
-                      key={h.id}
-                      className="border-b border-zinc-50 dark:border-zinc-900 hover:bg-zinc-50 dark:hover:bg-zinc-900/50 transition-colors"
-                    >
-                      <td className="px-5 py-3">
-                        <Link
-                          href={`/stocks/${h.symbol}`}
-                          className="font-bold text-sm text-zinc-900 dark:text-zinc-100 hover:text-blue-600 dark:hover:text-blue-400 hover:underline transition-colors"
-                        >
-                          {h.symbol}
-                        </Link>
-                      </td>
-                      <td className="px-5 py-3 text-right">
-                        {isEditing ? (
-                          <input
-                            type="number"
-                            value={editData.quantity}
-                            onChange={(e) =>
-                              setEditData({
-                                ...editData,
-                                quantity: e.target.value,
-                              })
-                            }
-                            min="1"
-                            className="w-20 px-2 py-1 text-sm text-right rounded border border-zinc-300 dark:border-zinc-600 bg-zinc-50 dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100"
-                          />
-                        ) : (
-                          <span className="text-sm font-mono text-zinc-600 dark:text-zinc-400">
-                            {formatVND(h.quantity)}
-                          </span>
-                        )}
-                      </td>
-                      <td className="px-5 py-3 text-right">
-                        {isEditing ? (
-                          <input
-                            type="number"
-                            value={editData.averagePrice}
-                            onChange={(e) =>
-                              setEditData({
-                                ...editData,
-                                averagePrice: e.target.value,
-                              })
-                            }
-                            min="1"
-                            className="w-24 px-2 py-1 text-sm text-right rounded border border-zinc-300 dark:border-zinc-600 bg-zinc-50 dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100"
-                          />
-                        ) : (
-                          <span className="text-sm font-mono text-zinc-600 dark:text-zinc-400">
-                            {formatVND(h.averagePrice)}
-                          </span>
-                        )}
-                      </td>
-                      <td className="px-5 py-3 text-right text-sm font-mono text-zinc-900 dark:text-zinc-100">
-                        {h.currentPrice ? formatVND(h.currentPrice) : "-"}
-                      </td>
-                      <td className="px-5 py-3 text-right">
-                        <div className="flex items-center justify-end gap-1">
-                          {positive ? (
-                            <ArrowUpRight className="h-3.5 w-3.5 text-emerald-600" />
+                    <React.Fragment key={h.id}>
+                      <tr className="border-b border-zinc-50 dark:border-zinc-900 hover:bg-zinc-50 dark:hover:bg-zinc-900/50 transition-colors">
+                        <td className="px-5 py-3">
+                          <Link
+                            href={`/stocks/${h.symbol}`}
+                            className="font-bold text-sm text-zinc-900 dark:text-zinc-100 hover:text-blue-600 dark:hover:text-blue-400 hover:underline transition-colors"
+                          >
+                            {h.symbol}
+                          </Link>
+                        </td>
+                        <td className="px-5 py-3 text-right">
+                          {isEditing ? (
+                            <input
+                              type="number"
+                              value={editData.quantity}
+                              onChange={(e) =>
+                                setEditData({
+                                  ...editData,
+                                  quantity: e.target.value,
+                                })
+                              }
+                              min="1"
+                              className="w-20 px-2 py-1 text-sm text-right rounded border border-zinc-300 dark:border-zinc-600 bg-zinc-50 dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100"
+                            />
                           ) : (
-                            <ArrowDownRight className="h-3.5 w-3.5 text-red-500" />
+                            <span className="text-sm font-mono text-zinc-600 dark:text-zinc-400">
+                              {formatVND(h.quantity)}
+                            </span>
                           )}
-                          <span
-                            className={`text-sm font-medium ${positive ? "text-emerald-600" : "text-red-500"}`}
+                        </td>
+                        <td className="px-5 py-3 text-right">
+                          {isEditing ? (
+                            <input
+                              type="number"
+                              value={editData.averagePrice}
+                              onChange={(e) =>
+                                setEditData({
+                                  ...editData,
+                                  averagePrice: e.target.value,
+                                })
+                              }
+                              min="1"
+                              className="w-24 px-2 py-1 text-sm text-right rounded border border-zinc-300 dark:border-zinc-600 bg-zinc-50 dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100"
+                            />
+                          ) : (
+                            <span className="text-sm font-mono text-zinc-600 dark:text-zinc-400">
+                              {formatVND(h.averagePrice)}
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-5 py-3 text-right text-sm font-mono text-zinc-900 dark:text-zinc-100">
+                          {h.currentPrice ? formatVND(h.currentPrice) : "-"}
+                        </td>
+                        <td className="px-5 py-3 text-right">
+                          <div className="flex items-center justify-end gap-1">
+                            {positive ? (
+                              <ArrowUpRight className="h-3.5 w-3.5 text-emerald-600" />
+                            ) : (
+                              <ArrowDownRight className="h-3.5 w-3.5 text-red-500" />
+                            )}
+                            <span
+                              className={`text-sm font-medium ${positive ? "text-emerald-600" : "text-red-500"}`}
+                            >
+                              {positive ? "+" : ""}
+                              {pnlPercent.toFixed(1)}%
+                            </span>
+                          </div>
+                          <div
+                            className={`text-xs ${positive ? "text-emerald-600" : "text-red-500"}`}
                           >
                             {positive ? "+" : ""}
-                            {pnlPercent.toFixed(1)}%
-                          </span>
-                        </div>
-                        <div
-                          className={`text-xs ${positive ? "text-emerald-600" : "text-red-500"}`}
-                        >
-                          {positive ? "+" : ""}
-                          {formatVND(Math.round(pnl))}
-                        </div>
-                      </td>
-                      <td className="px-5 py-3 text-center">
-                        {isEditing ? (
-                          <select
-                            value={editData.horizon}
-                            onChange={(e) =>
-                              setEditData({
-                                ...editData,
-                                horizon: e.target.value,
-                              })
-                            }
-                            className="text-xs px-2 py-1 rounded border border-zinc-300 dark:border-zinc-600 bg-zinc-50 dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100"
-                          >
-                            {HORIZONS.map((ho) => (
-                              <option key={ho.value} value={ho.value}>
-                                {ho.label}
-                              </option>
-                            ))}
-                          </select>
-                        ) : (
-                          <span
-                            className={`text-xs px-2 py-0.5 rounded-full font-medium ${HORIZON_COLORS[h.horizon] || ""}`}
-                          >
-                            {HORIZON_LABELS[h.horizon] || h.horizon}
-                          </span>
-                        )}
-                      </td>
-                      <td className="px-5 py-3 text-center">
-                        {isEditing ? (
-                          <div className="flex gap-1">
-                            <input
-                              type="number"
-                              value={editData.stopLoss}
-                              onChange={(e) =>
-                                setEditData({
-                                  ...editData,
-                                  stopLoss: e.target.value,
-                                })
-                              }
-                              placeholder="SL"
-                              className="w-20 px-2 py-1 text-xs text-right rounded border border-zinc-300 dark:border-zinc-600 bg-zinc-50 dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100"
-                            />
-                            <input
-                              type="number"
-                              value={editData.takeProfit}
-                              onChange={(e) =>
-                                setEditData({
-                                  ...editData,
-                                  takeProfit: e.target.value,
-                                })
-                              }
-                              placeholder="TP"
-                              className="w-20 px-2 py-1 text-xs text-right rounded border border-zinc-300 dark:border-zinc-600 bg-zinc-50 dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100"
-                            />
+                            {formatVND(Math.round(pnl))}
                           </div>
-                        ) : (
-                          <div className="text-xs font-mono space-y-0.5">
-                            {h.stopLoss ? (
-                              <div
-                                className={
-                                  h.currentPrice &&
-                                  h.currentPrice <= h.stopLoss * 1.03
-                                    ? "text-red-500 font-medium"
-                                    : "text-zinc-400"
-                                }
-                              >
-                                SL: {formatVND(h.stopLoss)}
-                              </div>
-                            ) : null}
-                            {h.takeProfit ? (
-                              <div
-                                className={
-                                  h.currentPrice &&
-                                  h.currentPrice >= h.takeProfit * 0.97
-                                    ? "text-emerald-600 font-medium"
-                                    : "text-zinc-400"
-                                }
-                              >
-                                TP: {formatVND(h.takeProfit)}
-                              </div>
-                            ) : null}
-                            {!h.stopLoss && !h.takeProfit && (
-                              <span className="text-zinc-300 dark:text-zinc-600">
-                                -
-                              </span>
-                            )}
-                          </div>
-                        )}
-                      </td>
-                      <td className="px-5 py-3 text-right">
-                        {h.dividendYield ? (
-                          <span className="text-sm font-mono text-emerald-600">
-                            {(h.dividendYield * 100).toFixed(1)}%
-                          </span>
-                        ) : (
-                          <span className="text-sm text-zinc-300 dark:text-zinc-600">
-                            -
-                          </span>
-                        )}
-                      </td>
-                      {aiReview && (
+                        </td>
                         <td className="px-5 py-3 text-center">
-                          {aiAction && (
+                          {isEditing ? (
+                            <select
+                              value={editData.horizon}
+                              onChange={(e) =>
+                                setEditData({
+                                  ...editData,
+                                  horizon: e.target.value,
+                                })
+                              }
+                              className="text-xs px-2 py-1 rounded border border-zinc-300 dark:border-zinc-600 bg-zinc-50 dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100"
+                            >
+                              {HORIZONS.map((ho) => (
+                                <option key={ho.value} value={ho.value}>
+                                  {ho.label}
+                                </option>
+                              ))}
+                            </select>
+                          ) : (
+                            <span
+                              className={`text-xs px-2 py-0.5 rounded-full font-medium ${HORIZON_COLORS[h.horizon] || ""}`}
+                            >
+                              {HORIZON_LABELS[h.horizon] || h.horizon}
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-5 py-3 text-center">
+                          {isEditing ? (
+                            <div className="flex gap-1">
+                              <input
+                                type="number"
+                                value={editData.stopLoss}
+                                onChange={(e) =>
+                                  setEditData({
+                                    ...editData,
+                                    stopLoss: e.target.value,
+                                  })
+                                }
+                                placeholder="SL"
+                                className="w-20 px-2 py-1 text-xs text-right rounded border border-zinc-300 dark:border-zinc-600 bg-zinc-50 dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100"
+                              />
+                              <input
+                                type="number"
+                                value={editData.takeProfit}
+                                onChange={(e) =>
+                                  setEditData({
+                                    ...editData,
+                                    takeProfit: e.target.value,
+                                  })
+                                }
+                                placeholder="TP"
+                                className="w-20 px-2 py-1 text-xs text-right rounded border border-zinc-300 dark:border-zinc-600 bg-zinc-50 dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100"
+                              />
+                            </div>
+                          ) : (
+                            <div className="text-xs font-mono space-y-0.5">
+                              {h.stopLoss ? (
+                                <div
+                                  className={
+                                    h.currentPrice &&
+                                    h.currentPrice <= h.stopLoss * 1.03
+                                      ? "text-red-500 font-medium"
+                                      : "text-zinc-400"
+                                  }
+                                >
+                                  SL: {formatVND(h.stopLoss)}
+                                </div>
+                              ) : null}
+                              {h.takeProfit ? (
+                                <div
+                                  className={
+                                    h.currentPrice &&
+                                    h.currentPrice >= h.takeProfit * 0.97
+                                      ? "text-emerald-600 font-medium"
+                                      : "text-zinc-400"
+                                  }
+                                >
+                                  TP: {formatVND(h.takeProfit)}
+                                </div>
+                              ) : null}
+                              {!h.stopLoss && !h.takeProfit && (
+                                <span className="text-zinc-300 dark:text-zinc-600">
+                                  -
+                                </span>
+                              )}
+                            </div>
+                          )}
+                        </td>
+                        <td className="px-5 py-3 text-right">
+                          {h.dividendYield ? (
+                            <span className="text-sm font-mono text-emerald-600">
+                              {(h.dividendYield * 100).toFixed(1)}%
+                            </span>
+                          ) : (
+                            <span className="text-sm text-zinc-300 dark:text-zinc-600">
+                              -
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-3 py-3 text-center">
+                          {aiAction ? (
                             <span
                               className={`text-xs font-bold px-2 py-0.5 rounded-full ${ACTION_COLORS[aiAction.action] || ACTION_COLORS.HOLD}`}
-                              title={aiAction.reasoning}
                             >
                               {aiAction.action === "ADD_MORE"
                                 ? "MUA THÊM"
@@ -1043,63 +993,175 @@ export default function PortfolioPage() {
                                   ? "BÁN"
                                   : "GIỮ"}
                             </span>
+                          ) : (
+                            <span className="text-xs text-zinc-300 dark:text-zinc-600">
+                              -
+                            </span>
                           )}
                         </td>
-                      )}
-                      <td className="px-3 py-3 text-center">
-                        <div className="flex items-center justify-center gap-1">
-                          {isEditing ? (
-                            <>
-                              <button
-                                type="button"
-                                onClick={() => handleSaveEdit(h.id)}
-                                disabled={saving}
-                                className="p-1.5 rounded-lg hover:bg-emerald-100 dark:hover:bg-emerald-900/30 text-emerald-600 transition-colors"
-                              >
-                                {saving ? (
-                                  <Loader2 className="h-4 w-4 animate-spin" />
-                                ) : (
-                                  <Check className="h-4 w-4" />
+                        <td className="px-3 py-3 text-center">
+                          <div className="flex items-center justify-center gap-1">
+                            {isEditing ? (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => handleSaveEdit(h.id)}
+                                  disabled={saving}
+                                  className="p-1.5 rounded-lg hover:bg-emerald-100 dark:hover:bg-emerald-900/30 text-emerald-600 transition-colors"
+                                >
+                                  {saving ? (
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                  ) : (
+                                    <Check className="h-4 w-4" />
+                                  )}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={cancelEdit}
+                                  className="p-1.5 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-400 transition-colors"
+                                >
+                                  <X className="h-4 w-4" />
+                                </button>
+                              </>
+                            ) : (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (expandedAiId === h.id) {
+                                      setExpandedAiId(null);
+                                    } else {
+                                      setExpandedAiId(h.id);
+                                      if (!aiReview) handleAIReview();
+                                    }
+                                  }}
+                                  disabled={reviewing}
+                                  className={`p-1.5 rounded-lg transition-colors ${
+                                    expandedAiId === h.id
+                                      ? "bg-amber-100 dark:bg-amber-900/30 text-amber-600"
+                                      : "hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-400 hover:text-amber-500"
+                                  }`}
+                                  title="AI Suggest"
+                                >
+                                  {reviewing && expandedAiId === h.id ? (
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                  ) : (
+                                    <Sparkles className="h-4 w-4" />
+                                  )}
+                                </button>
+                                <Link
+                                  href={`/stocks/${h.symbol}`}
+                                  className="p-1.5 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-400 hover:text-blue-500 transition-colors"
+                                  title="Phân tích chi tiết"
+                                >
+                                  <ArrowRight className="h-4 w-4" />
+                                </Link>
+                                <button
+                                  type="button"
+                                  onClick={() => startEdit(h)}
+                                  className="p-1.5 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-400 hover:text-zinc-600 transition-colors"
+                                  title="Chỉnh sửa"
+                                >
+                                  <Pencil className="h-4 w-4" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDelete(h.id, h.symbol)}
+                                  className="p-1.5 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-400 hover:text-red-500 transition-colors"
+                                  title="Xóa"
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                      {expandedAiId === h.id && (
+                        <tr className="bg-amber-50/50 dark:bg-amber-950/20">
+                          <td colSpan={10} className="px-5 py-3">
+                            {reviewing && !aiAction ? (
+                              <div className="flex items-center gap-2 text-sm text-blue-600 dark:text-blue-400">
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                                Đang phân tích...
+                              </div>
+                            ) : aiAction ? (
+                              <div className="space-y-2">
+                                <div className="flex items-center gap-2">
+                                  <span
+                                    className={`text-xs font-bold px-2 py-0.5 rounded-full ${ACTION_COLORS[aiAction.action] || ACTION_COLORS.HOLD}`}
+                                  >
+                                    {aiAction.action === "ADD_MORE"
+                                      ? "MUA THÊM"
+                                      : aiAction.action === "SELL"
+                                        ? "BÁN"
+                                        : "GIỮ"}
+                                  </span>
+                                  {aiAction.urgency === "high" && (
+                                    <span className="text-xs text-red-500 font-medium">
+                                      Khẩn cấp
+                                    </span>
+                                  )}
+                                  {aiReviewAge && (
+                                    <span className="text-[10px] text-zinc-400 ml-auto">
+                                      {formatAge(aiReviewAge)}
+                                    </span>
+                                  )}
+                                  <button
+                                    type="button"
+                                    onClick={handleAIReview}
+                                    disabled={reviewing}
+                                    className="p-1 rounded hover:bg-amber-100 dark:hover:bg-amber-900/30 text-zinc-400 hover:text-amber-600 transition-colors"
+                                    title="Chạy lại"
+                                  >
+                                    <RefreshCw className="h-3 w-3" />
+                                  </button>
+                                </div>
+                                <p className="text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed">
+                                  {aiAction.reasoning}
+                                </p>
+                                {(aiAction.suggested_stop_loss ||
+                                  aiAction.suggested_take_profit ||
+                                  aiAction.dividend_yield) && (
+                                  <div className="flex flex-wrap gap-2">
+                                    {aiAction.suggested_stop_loss && (
+                                      <span className="text-[10px] font-mono bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 px-1.5 py-0.5 rounded">
+                                        SL:{" "}
+                                        {formatVND(
+                                          aiAction.suggested_stop_loss,
+                                        )}
+                                      </span>
+                                    )}
+                                    {aiAction.suggested_take_profit && (
+                                      <span className="text-[10px] font-mono bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 px-1.5 py-0.5 rounded">
+                                        TP:{" "}
+                                        {formatVND(
+                                          aiAction.suggested_take_profit,
+                                        )}
+                                      </span>
+                                    )}
+                                    {aiAction.dividend_yield != null &&
+                                      aiAction.dividend_yield > 0 && (
+                                        <span className="text-[10px] font-mono bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 px-1.5 py-0.5 rounded">
+                                          Cổ tức:{" "}
+                                          {(
+                                            aiAction.dividend_yield * 100
+                                          ).toFixed(1)}
+                                          %
+                                        </span>
+                                      )}
+                                  </div>
                                 )}
-                              </button>
-                              <button
-                                type="button"
-                                onClick={cancelEdit}
-                                className="p-1.5 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-400 transition-colors"
-                              >
-                                <X className="h-4 w-4" />
-                              </button>
-                            </>
-                          ) : (
-                            <>
-                              <Link
-                                href={`/stocks/${h.symbol}`}
-                                className="p-1.5 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-400 hover:text-blue-500 transition-colors"
-                                title="Phân tích chi tiết"
-                              >
-                                <ArrowRight className="h-4 w-4" />
-                              </Link>
-                              <button
-                                type="button"
-                                onClick={() => startEdit(h)}
-                                className="p-1.5 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-400 hover:text-zinc-600 transition-colors"
-                                title="Chỉnh sửa"
-                              >
-                                <Pencil className="h-4 w-4" />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleDelete(h.id, h.symbol)}
-                                className="p-1.5 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-400 hover:text-red-500 transition-colors"
-                                title="Xóa"
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </button>
-                            </>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
+                              </div>
+                            ) : (
+                              <p className="text-xs text-zinc-400">
+                                Chưa có dữ liệu AI. Bấm lại để phân tích.
+                              </p>
+                            )}
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
                   );
                 })}
               </tbody>

@@ -2,6 +2,7 @@ import { db, desc, eq } from "@packages/drizzle";
 import { analysisReport, watchlistItem } from "@packages/drizzle/schema";
 import { NextResponse } from "next/server";
 import { authGuard } from "@/adapters/guards/auth.guard";
+import { stockServicePost } from "@/lib/stock-service";
 
 export async function GET() {
   const guard = await authGuard();
@@ -81,6 +82,32 @@ export async function GET() {
           inWatchlist: true,
           ma50Signal: signalMap.get(row.symbol) || null,
         });
+      }
+    }
+
+    // Auto-fill missing MA50 signals via Python technical compute
+    const missing = tracked
+      .filter((t) => !t.ma50Signal?.ma50)
+      .map((t) => t.symbol);
+
+    if (missing.length > 0) {
+      try {
+        const resp = (await stockServicePost("/api/price/signals", {
+          symbols: missing,
+        })) as { results: Array<{ symbol: string; [k: string]: unknown }> };
+
+        const techMap = new Map<string, Record<string, unknown>>();
+        for (const r of resp.results || []) {
+          techMap.set(r.symbol, r);
+        }
+
+        for (const t of tracked) {
+          if (!t.ma50Signal?.ma50 && techMap.has(t.symbol)) {
+            t.ma50Signal = techMap.get(t.symbol) as typeof t.ma50Signal;
+          }
+        }
+      } catch {
+        // best-effort — don't fail the whole response
       }
     }
 

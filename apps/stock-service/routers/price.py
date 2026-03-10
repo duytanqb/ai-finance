@@ -1,7 +1,9 @@
 import logging
 
 from fastapi import APIRouter, HTTPException, Query
+from pydantic import BaseModel
 
+from services.ai_workflows import _compute_technical_signals
 from services.dnse_client import DnseClient
 from services.vnstock_client import VnstockClient
 
@@ -136,3 +138,32 @@ async def _top_stocks_from_dnse(count: int) -> list[dict]:
     board = await _board_from_dnse(major)
     board.sort(key=lambda r: r.get("accumulated_volume", 0), reverse=True)
     return board[:count]
+
+
+class SignalRequest(BaseModel):
+    symbols: list[str]
+
+
+@router.post("/signals")
+async def get_technical_signals(req: SignalRequest):
+    """Compute MA50 and technical signals for a batch of symbols."""
+    import time as _time
+
+    to_ts = int(_time.time())
+    from_ts = to_ts - 250 * 86400
+    results: list[dict] = []
+
+    for sym in req.symbols[:30]:
+        try:
+            price_data = await dnse.get_ohlc(
+                sym.upper(), "1D", from_ts=from_ts, to_ts=to_ts,
+            )
+            if not price_data:
+                continue
+            signals = _compute_technical_signals(price_data)
+            if signals.get("ma50"):
+                results.append({"symbol": sym.upper(), **signals})
+        except Exception as e:
+            logger.warning("Signal compute failed for %s: %s", sym, e)
+
+    return {"results": results}
