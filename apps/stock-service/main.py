@@ -14,6 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from routers import ai_actions, financial, listing, price, screening
 from routers.dnse import router as dnse_router
+from routers.fund import router as fund_router
 from routers.market_watch import router as market_watch_router
 from routers.youtube import router as youtube_router
 
@@ -51,6 +52,7 @@ app.include_router(ai_actions.router, prefix="/api/ai", tags=["AI Actions"])
 app.include_router(market_watch_router, prefix="/api/market-watch", tags=["Market Watch"])
 app.include_router(dnse_router, prefix="/api/dnse", tags=["DNSE"])
 app.include_router(youtube_router, prefix="/api/youtube", tags=["YouTube"])
+app.include_router(fund_router, prefix="/api/fund", tags=["Fund"])
 
 
 @app.get("/health")

@@ -12,6 +12,7 @@ import httpx
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from jobs.digest import run_and_persist
+from jobs.fund_snapshot import run_fund_snapshot
 from jobs.watchlist_review import check_watchlist_signals
 from jobs.youtube_digest import run_youtube_digest
 
@@ -74,6 +75,16 @@ def start_scheduler():
         name="Watchlist MA50 Signal Check",
     )
 
+    scheduler.add_job(
+        run_fund_snapshot,
+        "cron",
+        day_of_week="mon",
+        hour=6,
+        minute=0,
+        id="fund_snapshot",
+        name="Weekly Fund Holdings Snapshot",
+    )
+
     scheduler.start()
-    print("[Scheduler] Started — YouTube digest at 06:00/18:00, Market Watch at 07:00/19:00, Alert check every 30m, Watchlist MA50 at 11:00 (market days)")
+    print("[Scheduler] Started — YouTube 06:00/18:00, Market Watch 07:00/19:00, Alert 30m, MA50 11:00, Fund snapshot Mon 06:00")
     return scheduler

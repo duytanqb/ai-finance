@@ -162,6 +162,27 @@ export const youtubeDigest = pgTable(
   ],
 );
 
+export const fundSnapshot = pgTable(
+  "fund_snapshot",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    fundSymbol: text("fund_symbol").notNull(),
+    fundName: text("fund_name").notNull(),
+    snapshotDate: text("snapshot_date").notNull(),
+    nav: real("nav"),
+    holdings: jsonb("holdings").notNull(),
+    industryAllocation: jsonb("industry_allocation"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => [
+    index("fund_snapshot_symbol_idx").on(table.fundSymbol),
+    unique("fund_snapshot_symbol_date_uniq").on(
+      table.fundSymbol,
+      table.snapshotDate,
+    ),
+  ],
+);
+
 export const analysisReport = pgTable(
   "analysis_report",
   {
