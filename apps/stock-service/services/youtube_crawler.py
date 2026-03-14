@@ -37,7 +37,7 @@ class YouTubeCrawler:
         self,
         channel_id: str,
         channel_name: str,
-        since_hours: int = 48,
+        since_hours: int = 72,
     ) -> list[dict]:
         """Fetch recent videos from a channel's RSS feed."""
         url = YT_RSS_URL.format(channel_id=channel_id)
@@ -130,7 +130,7 @@ class YouTubeCrawler:
     async def crawl_all_channels(
         self,
         processed_video_ids: set[str] | None = None,
-        since_hours: int = 48,
+        since_hours: int = 72,
     ) -> list[dict]:
         """Crawl all configured channels for new videos with transcripts.
 

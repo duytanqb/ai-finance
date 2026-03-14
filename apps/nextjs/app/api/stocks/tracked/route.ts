@@ -31,6 +31,7 @@ export async function GET() {
       { reportType: string; analyzedAt: string }
     >();
     for (const r of reports) {
+      if (r.symbol === "PORTFOLIO") continue;
       if (!symbolMap.has(r.symbol)) {
         symbolMap.set(r.symbol, {
           reportType: r.reportType,

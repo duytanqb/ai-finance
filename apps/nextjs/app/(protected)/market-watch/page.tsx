@@ -204,6 +204,49 @@ function formatDate(isoString: string): string {
   });
 }
 
+function toText(value: unknown): string {
+  if (value == null) return "";
+  if (typeof value === "string") {
+    // If the string looks like raw JSON from AI (starts with ```json or {), try to extract summary
+    const trimmed = value.trim();
+    if (
+      trimmed.startsWith("```") ||
+      (trimmed.startsWith("{") && trimmed.length > 200)
+    ) {
+      try {
+        let jsonStr = trimmed;
+        if (jsonStr.startsWith("```")) {
+          const fenceEnd = jsonStr.indexOf("\n");
+          jsonStr =
+            fenceEnd >= 0 ? jsonStr.slice(fenceEnd + 1) : jsonStr.slice(3);
+          const lastFence = jsonStr.lastIndexOf("```");
+          if (lastFence >= 0) jsonStr = jsonStr.slice(0, lastFence);
+        }
+        const parsed = JSON.parse(jsonStr.trim());
+        if (typeof parsed === "object" && parsed !== null) {
+          return (
+            parsed.summary ||
+            parsed.market_summary ||
+            parsed.text ||
+            JSON.stringify(parsed)
+          );
+        }
+      } catch {
+        // Not valid JSON, return as-is
+      }
+    }
+    return value;
+  }
+  if (typeof value === "number" || typeof value === "boolean")
+    return String(value);
+  if (typeof value === "object") {
+    const obj = value as Record<string, unknown>;
+    if (obj.summary && typeof obj.summary === "string") return obj.summary;
+    if (obj.text && typeof obj.text === "string") return obj.text;
+  }
+  return JSON.stringify(value);
+}
+
 const POLL_INTERVAL = 8000;
 const MAX_POLL_TIME = 20 * 60 * 1000;
 
@@ -320,7 +363,7 @@ function StockCard({ pick }: { pick: MarketPick }) {
 
       {/* Summary */}
       <p className="text-sm text-zinc-600 dark:text-zinc-400 mt-2">
-        {pick.summary}
+        {toText(pick.summary)}
       </p>
 
       {/* Metrics */}
@@ -496,7 +539,7 @@ function SectorCard({ sector }: { sector: SectorSummary }) {
         />
       </div>
       <p className="text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed">
-        {sector.thesis}
+        {toText(sector.thesis)}
       </p>
       {sector.catalysts.length > 0 && (
         <div className="flex flex-wrap gap-1 mt-2">
@@ -505,7 +548,7 @@ function SectorCard({ sector }: { sector: SectorSummary }) {
               key={c}
               className="text-xs px-2 py-0.5 rounded-full bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400"
             >
-              {c}
+              {toText(c)}
             </span>
           ))}
         </div>
@@ -909,7 +952,7 @@ export default function MarketWatchPage() {
 
           {/* Summary */}
           <p className="text-sm text-zinc-600 dark:text-zinc-400 leading-relaxed mb-3">
-            {ytDigest.digest.summary}
+            {toText(ytDigest.digest.summary)}
           </p>
 
           {/* Consensus Stocks */}
@@ -973,14 +1016,17 @@ export default function MarketWatchPage() {
                 </span>
               </div>
               <ul className="space-y-0.5">
-                {ytDigest.digest.risk_warnings.map((w) => (
-                  <li
-                    key={w}
-                    className="text-xs text-amber-700 dark:text-amber-300"
-                  >
-                    &bull; {w}
-                  </li>
-                ))}
+                {ytDigest.digest.risk_warnings.map((w: unknown) => {
+                  const text = toText(w);
+                  return (
+                    <li
+                      key={text}
+                      className="text-xs text-amber-700 dark:text-amber-300"
+                    >
+                      &bull; {text}
+                    </li>
+                  );
+                })}
               </ul>
             </div>
           )}
@@ -1020,6 +1066,8 @@ export default function MarketWatchPage() {
                           </a>
                           <p className="text-xs text-zinc-400 mt-0.5">
                             {v.channel_name}
+                            {v.published_at &&
+                              ` \u00B7 ${new Date(v.published_at).toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })}`}
                             {v.duration_minutes > 0 &&
                               ` \u00B7 ${v.duration_minutes} ph\u00FAt`}
                           </p>
@@ -1055,14 +1103,16 @@ export default function MarketWatchPage() {
                       )}
                       {v.key_points?.length > 0 && (
                         <ul className="space-y-0.5">
-                          {v.key_points.slice(0, 3).map((p, i) => (
-                            <li
-                              key={`kp-${v.video_id}-${i}`}
-                              className="text-xs text-zinc-500 dark:text-zinc-400"
-                            >
-                              &bull; {p}
-                            </li>
-                          ))}
+                          {v.key_points
+                            .slice(0, 3)
+                            .map((p: unknown, i: number) => (
+                              <li
+                                key={`kp-${v.video_id}-${i}`}
+                                className="text-xs text-zinc-500 dark:text-zinc-400"
+                              >
+                                &bull; {toText(p)}
+                              </li>
+                            ))}
                         </ul>
                       )}
                     </div>
@@ -1109,7 +1159,7 @@ export default function MarketWatchPage() {
               </span>
             </div>
             <p className="text-sm text-zinc-600 dark:text-zinc-400 leading-relaxed">
-              {digest.market_summary}
+              {toText(digest.market_summary)}
             </p>
             {digest.total_scanned > 0 && (
               <p className="text-xs text-zinc-400 mt-2">
@@ -1174,7 +1224,7 @@ export default function MarketWatchPage() {
                           </h3>
                           {sectorInfo && (
                             <span className="text-xs text-zinc-400">
-                              — {sectorInfo.thesis}
+                              — {toText(sectorInfo.thesis)}
                             </span>
                           )}
                           <span className="text-xs text-zinc-400 ml-auto">

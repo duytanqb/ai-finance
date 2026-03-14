@@ -1,6 +1,7 @@
 import json
 import logging
 import math
+import re
 from datetime import date, datetime
 from decimal import Decimal
 
@@ -8,6 +9,21 @@ logger = logging.getLogger(__name__)
 
 from services.claude_client import ClaudeClient
 from services.vnstock_client import VnstockClient
+
+
+def _extract_json(text: str) -> dict | list:
+    """Robustly extract JSON from AI response, handling code fences and edge cases."""
+    cleaned = text.strip()
+    # Remove markdown code fences (```json ... ``` or ``` ... ```)
+    fence_match = re.search(r"```(?:json)?\s*\n?(.*?)```", cleaned, re.DOTALL)
+    if fence_match:
+        cleaned = fence_match.group(1).strip()
+    elif cleaned.startswith("```"):
+        # Fallback: strip opening/closing fences manually
+        cleaned = re.sub(r"^```(?:json)?[\s]*", "", cleaned)
+        cleaned = re.sub(r"```\s*$", "", cleaned)
+        cleaned = cleaned.strip()
+    return json.loads(cleaned)
 
 
 def _compute_technical_signals(price_data: list[dict]) -> dict:
@@ -555,12 +571,8 @@ class AIWorkflowService:
         analysis = await self.claude.analyze(ANALYZE_PROMPT, _sanitize(data))
 
         try:
-            cleaned = analysis.strip()
-            if cleaned.startswith("```"):
-                cleaned = cleaned.split("\n", 1)[1] if "\n" in cleaned else cleaned
-                cleaned = cleaned.rsplit("```", 1)[0]
-            return {"symbol": symbol, "analysis": json.loads(cleaned), "raw_data": _sanitize(data)}
-        except (json.JSONDecodeError, IndexError):
+            return {"symbol": symbol, "analysis": _extract_json(analysis), "raw_data": _sanitize(data)}
+        except (json.JSONDecodeError, IndexError, ValueError):
             return {"symbol": symbol, "analysis": analysis, "raw_data": _sanitize(data)}
 
     async def full_analysis(self, symbol: str) -> dict:
@@ -637,12 +649,8 @@ class AIWorkflowService:
         analysis = await self.claude.analyze(FULL_ANALYSIS_PROMPT, _sanitize(data))
 
         try:
-            cleaned = analysis.strip()
-            if cleaned.startswith("```"):
-                cleaned = cleaned.split("\n", 1)[1] if "\n" in cleaned else cleaned
-                cleaned = cleaned.rsplit("```", 1)[0]
-            return {"symbol": symbol, "analysis": json.loads(cleaned), "raw_data": _sanitize(data)}
-        except (json.JSONDecodeError, IndexError):
+            return {"symbol": symbol, "analysis": _extract_json(analysis), "raw_data": _sanitize(data)}
+        except (json.JSONDecodeError, IndexError, ValueError):
             return {"symbol": symbol, "analysis": analysis, "raw_data": _sanitize(data)}
 
     async def deep_research(self, symbol: str) -> dict:
@@ -916,14 +924,10 @@ IMPORTANT: Write ENTIRELY in Vietnamese. Use clear markdown. Be decisive in your
 
         verdict_map = {}
         try:
-            cleaned = response.strip()
-            if cleaned.startswith("```"):
-                cleaned = cleaned.split("\n", 1)[1] if "\n" in cleaned else cleaned
-                cleaned = cleaned.rsplit("```", 1)[0]
-            parsed = json.loads(cleaned)
+            parsed = _extract_json(response)
             for a in parsed.get("assessments", []):
                 verdict_map[a.get("symbol", "")] = a
-        except (json.JSONDecodeError, KeyError):
+        except (json.JSONDecodeError, KeyError, ValueError):
             pass
 
         result = []
@@ -946,16 +950,12 @@ IMPORTANT: Write ENTIRELY in Vietnamese. Use clear markdown. Be decisive in your
         )
 
         try:
-            cleaned = response.strip()
-            if cleaned.startswith("```"):
-                cleaned = cleaned.split("\n", 1)[1] if "\n" in cleaned else cleaned
-                cleaned = cleaned.rsplit("```", 1)[0]
-            parsed = json.loads(cleaned)
+            parsed = _extract_json(response)
             return [
                 s for s in parsed.get("stocks", [])
                 if s.get("symbol") and s["symbol"].upper() not in exclude_symbols
             ]
-        except (json.JSONDecodeError, KeyError):
+        except (json.JSONDecodeError, KeyError, ValueError):
             return []
 
     async def analyze_sectors_from_news(self, headlines: list[dict]) -> dict:
@@ -971,16 +971,12 @@ IMPORTANT: Write ENTIRELY in Vietnamese. Use clear markdown. Be decisive in your
         )
 
         try:
-            cleaned = response.strip()
-            if cleaned.startswith("```"):
-                cleaned = cleaned.split("\n", 1)[1] if "\n" in cleaned else cleaned
-                cleaned = cleaned.rsplit("```", 1)[0]
-            parsed = json.loads(cleaned)
+            parsed = _extract_json(response)
             sectors = parsed.get("sectors", [])
             sectors.sort(key=lambda x: x.get("confidence", 0), reverse=True)
             parsed["sectors"] = sectors[:5]
             return parsed
-        except (json.JSONDecodeError, KeyError):
+        except (json.JSONDecodeError, KeyError, ValueError):
             return {"sectors": [], "market_mood": "neutral", "market_summary": "Không thể phân tích tin tức"}
 
     async def quick_assess_batch_with_sectors(
@@ -1014,14 +1010,10 @@ IMPORTANT: Write ENTIRELY in Vietnamese. Use clear markdown. Be decisive in your
 
         verdict_map = {}
         try:
-            cleaned = response.strip()
-            if cleaned.startswith("```"):
-                cleaned = cleaned.split("\n", 1)[1] if "\n" in cleaned else cleaned
-                cleaned = cleaned.rsplit("```", 1)[0]
-            parsed = json.loads(cleaned)
+            parsed = _extract_json(response)
             for a in parsed.get("assessments", []):
                 verdict_map[a.get("symbol", "")] = a
-        except (json.JSONDecodeError, KeyError):
+        except (json.JSONDecodeError, KeyError, ValueError):
             pass
 
         result = []
@@ -1061,14 +1053,10 @@ IMPORTANT: Write ENTIRELY in Vietnamese. Use clear markdown. Be decisive in your
         response = await self.claude.analyze(prompt, _sanitize({"count": len(candidates), "limit": limit}))
 
         try:
-            cleaned = response.strip()
-            if cleaned.startswith("```"):
-                cleaned = cleaned.split("\n", 1)[1] if "\n" in cleaned else cleaned
-                cleaned = cleaned.rsplit("```", 1)[0]
-            parsed = json.loads(cleaned)
+            parsed = _extract_json(response)
             selected_symbols = {s.get("symbol", "").upper() for s in parsed.get("selected", [])}
             reason_map = {s.get("symbol", "").upper(): s for s in parsed.get("selected", [])}
-        except (json.JSONDecodeError, KeyError):
+        except (json.JSONDecodeError, KeyError, ValueError):
             selected_symbols = {c["symbol"] for c in candidates[:limit]}
             reason_map = {}
 
@@ -1137,11 +1125,7 @@ Lưu ý:
         result = await self.claude.analyze(prompt, _sanitize(data))
 
         try:
-            cleaned = result.strip()
-            if cleaned.startswith("```"):
-                cleaned = cleaned.split("\n", 1)[1] if "\n" in cleaned else cleaned
-                cleaned = cleaned.rsplit("```", 1)[0]
-            parsed = json.loads(cleaned)
+            parsed = _extract_json(result)
             parsed["video_id"] = video.get("video_id", "")
             parsed["title"] = title
             parsed["channel_name"] = channel
@@ -1149,7 +1133,7 @@ Lưu ý:
             parsed["thumbnail_url"] = video.get("thumbnail_url", "")
             parsed["duration_minutes"] = video.get("duration_minutes", 0)
             return parsed
-        except (json.JSONDecodeError, IndexError):
+        except (json.JSONDecodeError, IndexError, ValueError):
             logger.warning("Failed to parse video summary for %s", title)
             return {
                 "video_id": video.get("video_id", ""),
@@ -1201,12 +1185,8 @@ Lưu ý:
         result = await self.claude.analyze(prompt, _sanitize(data))
 
         try:
-            cleaned = result.strip()
-            if cleaned.startswith("```"):
-                cleaned = cleaned.split("\n", 1)[1] if "\n" in cleaned else cleaned
-                cleaned = cleaned.rsplit("```", 1)[0]
-            return json.loads(cleaned)
-        except (json.JSONDecodeError, IndexError):
+            return _extract_json(result)
+        except (json.JSONDecodeError, IndexError, ValueError):
             logger.warning("Failed to parse youtube digest")
             return {
                 "consensus_stocks": [],
@@ -1214,7 +1194,7 @@ Lưu ý:
                 "conflicting_views": [],
                 "risk_warnings": [],
                 "market_sentiment": "neutral",
-                "summary": result,
+                "summary": "Không thể phân tích dữ liệu. Vui lòng thử lại.",
             }
 
     async def watchlist_review(self, symbols: list[str]) -> dict:
@@ -1288,13 +1268,9 @@ Lưu ý: Viết bằng tiếng Việt. Signal BUY khi giá trên MA50 và các c
         result = await self.claude.analyze(prompt, _sanitize({"stocks": valid_signals}))
 
         try:
-            cleaned = result.strip()
-            if cleaned.startswith("```"):
-                cleaned = cleaned.split("\n", 1)[1] if "\n" in cleaned else cleaned
-                cleaned = cleaned.rsplit("```", 1)[0]
-            ai_results = json.loads(cleaned)
+            ai_results = _extract_json(result)
             ai_map = {r["symbol"]: r for r in ai_results.get("results", [])}
-        except (json.JSONDecodeError, IndexError, KeyError):
+        except (json.JSONDecodeError, IndexError, KeyError, ValueError):
             logger.warning("Failed to parse watchlist review AI response")
             ai_map = {}
 
@@ -1346,10 +1322,6 @@ Lưu ý: Viết bằng tiếng Việt. Signal BUY khi giá trên MA50 và các c
         analysis = await self.claude.analyze(PORTFOLIO_REVIEW_PROMPT, _sanitize({"holdings": enriched}))
 
         try:
-            cleaned = analysis.strip()
-            if cleaned.startswith("```"):
-                cleaned = cleaned.split("\n", 1)[1] if "\n" in cleaned else cleaned
-                cleaned = cleaned.rsplit("```", 1)[0]
-            return {"review": json.loads(cleaned)}
-        except (json.JSONDecodeError, IndexError):
+            return {"review": _extract_json(analysis)}
+        except (json.JSONDecodeError, IndexError, ValueError):
             return {"review": analysis}

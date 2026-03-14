@@ -72,7 +72,7 @@ async def trigger_youtube_digest(body: dict | None = None):
     if _is_pipeline_running():
         return {"status": "already_running"}
 
-    since_hours = 48
+    since_hours = 72
     if body and "since_hours" in body:
         since_hours = int(body["since_hours"])
 
