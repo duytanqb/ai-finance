@@ -393,12 +393,12 @@ Respond in JSON:
     }
   ],
   "market_mood": "positive|neutral|negative",
-  "market_summary": "2-3 câu tóm tắt tâm lý thị trường bằng tiếng Việt",
+  "market_summary": "Viết 1 đoạn tổng quan thị trường chi tiết (8-12 câu) bằng tiếng Việt. Bao gồm: (1) Xu hướng chung của VN-Index và thanh khoản, (2) Dòng tiền đang chảy vào ngành nào và tại sao, (3) Các yếu tố vĩ mô tác động (lãi suất, tỷ giá, chính sách), (4) Tâm lý nhà đầu tư và rủi ro cần lưu ý, (5) Nhận định ngắn hạn cho tuần tới",
   "important_news": [
     {
       "index": 0,
       "title": "Tiêu đề tin tức",
-      "summary": "1-2 câu tóm tắt tác động đến thị trường chứng khoán",
+      "summary": "2-3 câu phân tích tác động đến thị trường: tin này ảnh hưởng thế nào đến dòng tiền, ngành nào hưởng lợi/thiệt hại, mức độ tác động ngắn/trung hạn",
       "impact": "positive|negative|neutral",
       "related_sectors": ["Ngân hàng"]
     }
@@ -1100,20 +1100,21 @@ Hãy phân tích nội dung video YouTube về chứng khoán dưới đây và 
 
 Trả về JSON với cấu trúc:
 {
-  "stocks_mentioned": [{"symbol": "MÃ CỔ PHIẾU (viết hoa)", "sentiment": "bullish|bearish|neutral", "context": "tóm tắt ngắn về nhận định"}],
-  "sectors": [{"name": "tên ngành", "outlook": "tóm tắt triển vọng"}],
-  "key_points": ["điểm chính 1", "điểm chính 2", ...],
+  "stocks_mentioned": [{"symbol": "MÃ CỔ PHIẾU (viết hoa)", "sentiment": "bullish|bearish|neutral", "context": "tóm tắt nhận định 1-2 câu: vì sao bullish/bearish, mức giá mục tiêu nếu có"}],
+  "sectors": [{"name": "tên ngành", "outlook": "triển vọng ngành 2-3 câu, bao gồm catalyst và rủi ro"}],
+  "key_points": ["điểm chính 1 (viết đầy đủ 1-2 câu)", "điểm chính 2", ...],
   "risk_warnings": ["cảnh báo rủi ro 1", ...],
-  "trading_recommendations": ["khuyến nghị giao dịch 1", ...],
+  "trading_recommendations": ["khuyến nghị giao dịch cụ thể 1", ...],
   "overall_sentiment": "bullish|bearish|neutral",
-  "summary": "tóm tắt nội dung video trong 2-3 câu"
+  "summary": "Tóm tắt nội dung video chi tiết trong 4-6 câu. Bao gồm: nhận định xu hướng thị trường, ngành/cổ phiếu trọng tâm, chiến lược giao dịch gợi ý, và cảnh báo rủi ro chính"
 }
 
 Lưu ý:
 - Chỉ liệt kê mã cổ phiếu thực sự được nhắc đến (VD: VCB, FPT, HPG, PVS...)
 - Sentiment dựa trên nhận định của người nói
-- key_points: tối đa 5 điểm quan trọng nhất
+- key_points: tối đa 7 điểm quan trọng nhất, viết đầy đủ ý không quá ngắn gọn
 - risk_warnings: các cảnh báo về rủi ro thị trường, vĩ mô
+- trading_recommendations: ghi cụ thể mức giá, vùng mua/bán nếu người nói đề cập
 - Viết bằng tiếng Việt"""
 
         data = {
@@ -1168,17 +1169,19 @@ Hãy tổng hợp và đối chiếu các nhận định để đưa ra bức tr
 Trả về JSON với cấu trúc:
 {
   "consensus_stocks": [{"symbol": "MÃ", "mentions": số_lần_nhắc, "avg_sentiment": "bullish|bearish|neutral", "contexts": ["nhận định từ kênh A", "nhận định từ kênh B"]}],
-  "hot_sectors": [{"name": "tên ngành", "outlook": "triển vọng", "mentioned_by": ["kênh A", "kênh B"]}],
+  "hot_sectors": [{"name": "tên ngành", "outlook": "triển vọng chi tiết 2-3 câu", "mentioned_by": ["kênh A", "kênh B"]}],
   "conflicting_views": [{"topic": "chủ đề", "views": [{"creator": "kênh", "position": "quan điểm"}]}],
   "risk_warnings": ["cảnh báo rủi ro tổng hợp 1", ...],
   "market_sentiment": "bullish|bearish|neutral",
-  "summary": "tóm tắt tổng quan thị trường dựa trên tất cả các video (3-5 câu)"
+  "summary": "Viết 1 đoạn tổng quan thị trường chi tiết (8-15 câu) dựa trên TẤT CẢ các video. Bao gồm: (1) Xu hướng chung VN-Index theo nhận định các kênh, (2) Dòng tiền đang chảy vào đâu và vì sao, (3) Ngành/cổ phiếu nào được nhiều kênh đồng thuận nhất, (4) Các yếu tố vĩ mô và rủi ro được nhắc đến, (5) Các quan điểm trái chiều nổi bật giữa các kênh, (6) Nhận định chung cho phiên/tuần tới"
 }
 
 Lưu ý:
 - consensus_stocks: chỉ liệt kê cổ phiếu được 2+ kênh nhắc đến, hoặc cổ phiếu được nhấn mạnh đặc biệt
 - conflicting_views: khi các kênh có nhận định trái ngược
 - risk_warnings: tổng hợp tất cả cảnh báo rủi ro, loại bỏ trùng lặp
+- hot_sectors outlook: viết chi tiết triển vọng ngành, không chỉ 1 câu ngắn
+- summary: PHẢI viết đầy đủ chi tiết, đây là phần quan trọng nhất giúp nhà đầu tư nắm bắt toàn cảnh thị trường
 - Viết bằng tiếng Việt"""
 
         data = {"video_summaries": video_summaries}
