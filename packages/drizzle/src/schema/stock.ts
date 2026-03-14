@@ -204,3 +204,32 @@ export const analysisReport = pgTable(
     ),
   ],
 );
+
+export const stockSuggestion = pgTable(
+  "stock_suggestion",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    symbol: text("symbol").notNull(),
+    name: text("name").notNull(),
+    exchange: text("exchange").notNull(),
+    score: real("score").notNull(),
+    sources: jsonb("sources").notNull(),
+    recommendation: text("recommendation").notNull(),
+    confidence: integer("confidence").notNull().default(0),
+    targetPrice: real("target_price"),
+    entryPrice: real("entry_price"),
+    stopLoss: real("stop_loss"),
+    deepResearchSummary: text("deep_research_summary"),
+    deepResearchReportId: uuid("deep_research_report_id"),
+    status: text("status").notNull().default("pending"),
+    batchDate: text("batch_date").notNull(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => [
+    index("stock_suggestion_batch_date_idx").on(table.batchDate),
+    index("stock_suggestion_symbol_batch_idx").on(
+      table.symbol,
+      table.batchDate,
+    ),
+  ],
+);

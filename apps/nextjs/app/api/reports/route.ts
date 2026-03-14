@@ -9,24 +9,38 @@ export async function GET(request: NextRequest) {
     const symbol = searchParams.get("symbol");
     const reportType = searchParams.get("type");
 
-    if (!symbol) {
-      return NextResponse.json(
-        { error: "symbol query parameter is required" },
-        { status: 400 },
-      );
-    }
+    const days = searchParams.get("days");
+    const conditions = [];
 
-    const conditions = [eq(analysisReport.symbol, symbol.toUpperCase())];
+    if (symbol) {
+      conditions.push(eq(analysisReport.symbol, symbol.toUpperCase()));
+    }
     if (reportType) {
       conditions.push(eq(analysisReport.reportType, reportType));
     }
 
-    const reports = await db
+    if (!symbol && !reportType) {
+      return NextResponse.json(
+        { error: "symbol or type query parameter is required" },
+        { status: 400 },
+      );
+    }
+
+    const query = db
       .select()
       .from(analysisReport)
       .where(and(...conditions))
       .orderBy(desc(analysisReport.createdAt))
-      .limit(10);
+      .limit(days ? 100 : 10);
+
+    const reports = await query;
+
+    if (days) {
+      const cutoff = new Date();
+      cutoff.setDate(cutoff.getDate() - Number(days));
+      const filtered = reports.filter((r) => r.createdAt >= cutoff);
+      return NextResponse.json({ reports: filtered });
+    }
 
     return NextResponse.json(reports);
   } catch (e) {

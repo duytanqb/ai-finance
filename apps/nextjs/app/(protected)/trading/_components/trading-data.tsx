@@ -90,10 +90,13 @@ export function TradingData() {
         balance,
         holdings: Array.isArray(holdingsRaw)
           ? holdingsRaw
-          : holdingsRaw?.holdings || holdingsRaw?.data || null,
+          : holdingsRaw?.deals ||
+            holdingsRaw?.holdings ||
+            holdingsRaw?.data ||
+            null,
         orders: Array.isArray(ordersRaw)
           ? ordersRaw
-          : ordersRaw?.orders || ordersRaw?.data || null,
+          : ordersRaw?.orders || ordersRaw?.data || ordersRaw?.list || null,
       });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Lỗi kết nối DNSE");

@@ -37,6 +37,70 @@ function getStr(obj: Record<string, unknown>, ...keys: string[]): string {
   return "";
 }
 
+function groupHoldings(
+  holdings: Record<string, unknown>[] | null,
+): Record<string, unknown>[] {
+  if (!holdings || holdings.length === 0) return [];
+
+  const map = new Map<string, Record<string, unknown>>();
+
+  for (const h of holdings) {
+    const symbol = getStr(h, "symbol", "stockSymbol", "ticker", "stockCode");
+    if (!symbol) {
+      map.set(`_unknown_${map.size}`, h);
+      continue;
+    }
+
+    const key = symbol.toUpperCase();
+    const qty =
+      getNum(
+        h,
+        "quantity",
+        "totalQuantity",
+        "holdingQuantity",
+        "qty",
+        "volume",
+      ) ?? 0;
+    const avgPrice =
+      getNum(h, "avgPrice", "averagePrice", "costPrice", "avgCost") ?? 0;
+    const marketPrice =
+      getNum(h, "marketPrice", "currentPrice", "lastPrice", "matchPrice") ?? 0;
+
+    const existing = map.get(key);
+    if (existing) {
+      const existQty =
+        getNum(
+          existing,
+          "quantity",
+          "totalQuantity",
+          "holdingQuantity",
+          "qty",
+          "volume",
+        ) ?? 0;
+      const existAvg =
+        getNum(existing, "avgPrice", "averagePrice", "costPrice", "avgCost") ??
+        0;
+
+      const totalQty = existQty + qty;
+      const weightedAvg =
+        totalQty > 0 ? (existQty * existAvg + qty * avgPrice) / totalQty : 0;
+
+      existing.quantity = totalQty;
+      existing.totalQuantity = totalQty;
+      existing.avgPrice = Math.round(weightedAvg * 100) / 100;
+      existing.averagePrice = existing.avgPrice;
+      if (marketPrice > 0) {
+        existing.marketPrice = marketPrice;
+        existing.currentPrice = marketPrice;
+      }
+    } else {
+      map.set(key, { ...h });
+    }
+  }
+
+  return Array.from(map.values());
+}
+
 export function HoldingsTable({ holdings }: HoldingsTableProps) {
   const [portfolioMap, setPortfolioMap] = useState<
     Record<string, PortfolioHolding>
@@ -61,7 +125,9 @@ export function HoldingsTable({ holdings }: HoldingsTableProps) {
     if (holdings && holdings.length > 0) fetchPortfolio();
   }, [holdings]);
 
-  if (!holdings || holdings.length === 0) {
+  const grouped = groupHoldings(holdings);
+
+  if (grouped.length === 0) {
     return (
       <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-8 text-center text-zinc-400">
         <Package className="h-6 w-6 mx-auto mb-2 opacity-50" />
@@ -74,7 +140,7 @@ export function HoldingsTable({ holdings }: HoldingsTableProps) {
     <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 overflow-hidden">
       <div className="px-5 py-3 border-b border-zinc-100 dark:border-zinc-800">
         <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
-          Danh mục cổ phiếu ({holdings.length} mã)
+          Danh mục cổ phiếu ({grouped.length} mã)
         </h2>
       </div>
       <div className="overflow-x-auto">
@@ -102,7 +168,7 @@ export function HoldingsTable({ holdings }: HoldingsTableProps) {
             </tr>
           </thead>
           <tbody>
-            {holdings.map((h, i) => {
+            {grouped.map((h, i) => {
               const symbol = getStr(
                 h,
                 "symbol",

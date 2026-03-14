@@ -137,6 +137,58 @@ interface YouTubeDigestData {
   cached?: boolean;
 }
 
+interface StockSuggestionItem {
+  id: string;
+  symbol: string;
+  name: string;
+  exchange: string;
+  score: number;
+  sources: {
+    type: string;
+    channel?: string;
+    sentiment?: string;
+    fund_count?: number;
+    funds?: string[];
+    action?: string;
+    sector?: string;
+  }[];
+  recommendation: string;
+  confidence: number;
+  target_price: number | null;
+  entry_price: number | null;
+  stop_loss: number | null;
+  deep_research_summary: string | null;
+  deep_research_report_id: string | null;
+  status: string;
+}
+
+interface StockSuggestionData {
+  batch_date: string | null;
+  generated_at?: string;
+  suggestions: StockSuggestionItem[];
+}
+
+const SOURCE_LABELS: Record<string, { label: string; color: string }> = {
+  youtube_video: {
+    label: "YouTube",
+    color: "bg-red-50 text-red-600 dark:bg-red-900/20 dark:text-red-400",
+  },
+  youtube_consensus: {
+    label: "YT Consensus",
+    color:
+      "bg-orange-50 text-orange-600 dark:bg-orange-900/20 dark:text-orange-400",
+  },
+  market_watch: {
+    label: "Tin tức",
+    color: "bg-blue-50 text-blue-600 dark:bg-blue-900/20 dark:text-blue-400",
+  },
+  fund_holding: {
+    label: "Quỹ đầu tư",
+    color:
+      "bg-purple-50 text-purple-600 dark:bg-purple-900/20 dark:text-purple-400",
+  },
+};
+
 const SENTIMENT_STYLES: Record<string, { label: string; color: string }> = {
   bullish: {
     label: "Tích cực",
@@ -651,6 +703,12 @@ export default function MarketWatchPage() {
   const [ytDigest, setYtDigest] = useState<YouTubeDigestData | null>(null);
   const [ytExpanded, setYtExpanded] = useState(false);
   const [ytRefreshing, setYtRefreshing] = useState(false);
+  const [suggestions, setSuggestions] = useState<StockSuggestionData | null>(
+    null,
+  );
+  const [sugRefreshing, setSugRefreshing] = useState(false);
+  const [sugProgress, setSugProgress] = useState<PipelineProgress | null>(null);
+  const sugPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pollStartRef = useRef<number>(0);
 
@@ -798,6 +856,46 @@ export default function MarketWatchPage() {
     }
   }, []);
 
+  const handleSuggestionsRefresh = useCallback(async () => {
+    setSugRefreshing(true);
+    setSugProgress(null);
+    try {
+      const res = await fetch("/api/stock-suggestions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      if (!res.ok) throw new Error(`Server error: ${res.status}`);
+
+      sugPollRef.current = setInterval(async () => {
+        try {
+          const r = await fetch("/api/stock-suggestions?status=1");
+          const data = await r.json();
+          const status = data.pipeline_status;
+          if (status === "running") {
+            setSugProgress({
+              current_stage: data.current_stage,
+              current_stage_name: data.current_stage_name,
+              stage_detail: data.stage_detail,
+              stages: data.stages || [],
+            });
+          } else if (status === "completed" || status === "error") {
+            if (sugPollRef.current) clearInterval(sugPollRef.current);
+            setSugRefreshing(false);
+            setSugProgress(null);
+            const fresh = await fetch("/api/stock-suggestions");
+            const freshData = await fresh.json();
+            if (freshData.suggestions) setSuggestions(freshData);
+          }
+        } catch {
+          // silent
+        }
+      }, 8000);
+    } catch {
+      setSugRefreshing(false);
+    }
+  }, []);
+
   useEffect(() => {
     fetchDigest();
     fetch("/api/youtube/digest")
@@ -806,7 +904,16 @@ export default function MarketWatchPage() {
         if (data.digest) setYtDigest(data as YouTubeDigestData);
       })
       .catch(() => {});
-    return () => stopPolling();
+    fetch("/api/stock-suggestions")
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.suggestions) setSuggestions(data);
+      })
+      .catch(() => {});
+    return () => {
+      stopPolling();
+      if (sugPollRef.current) clearInterval(sugPollRef.current);
+    };
   }, [fetchDigest, stopPolling]);
 
   const hasSectorData =
@@ -1123,6 +1230,174 @@ export default function MarketWatchPage() {
           )}
         </div>
       )}
+
+      {/* AI Stock Suggestions */}
+      <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-5">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <TrendingUp className="h-4 w-4 text-emerald-500" />
+            <h2 className="font-semibold text-zinc-900 dark:text-zinc-100 text-sm">
+              AI Gợi ý mua
+            </h2>
+            {suggestions?.batch_date && (
+              <span className="text-xs text-zinc-400">
+                {suggestions.batch_date}
+              </span>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={handleSuggestionsRefresh}
+            disabled={sugRefreshing}
+            className="flex items-center gap-1.5 text-xs text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300 disabled:opacity-50 px-3 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors"
+          >
+            {sugRefreshing ? (
+              <Loader2 className="h-3 w-3 animate-spin" />
+            ) : (
+              <Sparkles className="h-3 w-3" />
+            )}
+            {sugRefreshing ? "Đang phân tích..." : "Cập nhật gợi ý"}
+          </button>
+        </div>
+
+        {sugProgress && sugRefreshing && (
+          <div className="mb-4 p-3 rounded-lg bg-zinc-50 dark:bg-zinc-900 border border-zinc-100 dark:border-zinc-800">
+            <div className="flex items-center gap-2 mb-1">
+              <Loader2 className="h-3 w-3 animate-spin text-zinc-400" />
+              <span className="text-xs font-medium text-zinc-700 dark:text-zinc-300">
+                Bước {sugProgress.current_stage}/4:{" "}
+                {sugProgress.current_stage_name}
+              </span>
+            </div>
+            {sugProgress.stage_detail && (
+              <p className="text-xs text-zinc-500 ml-5">
+                {sugProgress.stage_detail}
+              </p>
+            )}
+            {sugProgress.stages.length > 0 && (
+              <div className="mt-2 ml-5 space-y-0.5">
+                {sugProgress.stages
+                  .filter((s) => s.completed_at)
+                  .map((s) => (
+                    <div
+                      key={s.stage}
+                      className="flex items-center gap-1.5 text-xs text-zinc-400"
+                    >
+                      <CheckCircle2 className="h-3 w-3 text-emerald-500" />
+                      {s.name}
+                      {s.duration != null && (
+                        <span className="text-zinc-300 dark:text-zinc-600">
+                          ({s.duration}s)
+                        </span>
+                      )}
+                    </div>
+                  ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {suggestions?.suggestions &&
+        suggestions.suggestions.filter((s) => s.status === "approved").length >
+          0 ? (
+          <div className="grid gap-3 sm:grid-cols-2">
+            {suggestions.suggestions
+              .filter((s) => s.status === "approved")
+              .map((s) => (
+                <div
+                  key={s.id}
+                  className="rounded-lg border border-zinc-100 dark:border-zinc-800 p-4 hover:border-emerald-200 dark:hover:border-emerald-800 transition-colors"
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <Link
+                        href={`/stocks/${s.symbol}`}
+                        className="font-bold text-sm text-zinc-900 dark:text-zinc-100 hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors"
+                      >
+                        {s.symbol}
+                      </Link>
+                      <span className="text-xs text-zinc-400">{s.name}</span>
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-100 dark:bg-zinc-800 text-zinc-500">
+                        {s.exchange}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">
+                        BUY
+                      </span>
+                      <span className="text-[10px] font-medium text-zinc-400">
+                        {s.confidence}%
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Source badges */}
+                  <div className="flex flex-wrap gap-1 mb-2">
+                    {Array.from(new Set(s.sources.map((src) => src.type))).map(
+                      (type) => {
+                        const style = SOURCE_LABELS[type];
+                        return (
+                          <span
+                            key={type}
+                            className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${style?.color ?? "bg-zinc-100 text-zinc-500"}`}
+                          >
+                            {style?.label ?? type}
+                          </span>
+                        );
+                      },
+                    )}
+                    <span className="text-[10px] text-zinc-400 px-1">
+                      Score: {s.score}
+                    </span>
+                  </div>
+
+                  {/* Price targets */}
+                  {(s.entry_price || s.target_price || s.stop_loss) && (
+                    <div className="flex gap-3 text-xs mb-2">
+                      {s.entry_price && (
+                        <span className="text-zinc-500">
+                          Mua:{" "}
+                          <span className="font-mono font-medium text-zinc-700 dark:text-zinc-300">
+                            {s.entry_price.toLocaleString("vi-VN")}
+                          </span>
+                        </span>
+                      )}
+                      {s.target_price && (
+                        <span className="text-zinc-500">
+                          Mục tiêu:{" "}
+                          <span className="font-mono font-medium text-emerald-600">
+                            {s.target_price.toLocaleString("vi-VN")}
+                          </span>
+                        </span>
+                      )}
+                      {s.stop_loss && (
+                        <span className="text-zinc-500">
+                          Cắt lỗ:{" "}
+                          <span className="font-mono font-medium text-red-500">
+                            {s.stop_loss.toLocaleString("vi-VN")}
+                          </span>
+                        </span>
+                      )}
+                    </div>
+                  )}
+
+                  {s.deep_research_summary && (
+                    <p className="text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed">
+                      {s.deep_research_summary}
+                    </p>
+                  )}
+                </div>
+              ))}
+          </div>
+        ) : (
+          !sugRefreshing && (
+            <p className="text-xs text-zinc-400 text-center py-4">
+              Chưa có gợi ý. Nhấn &quot;Cập nhật gợi ý&quot; để AI phân tích từ
+              YouTube, tin tức và quỹ đầu tư.
+            </p>
+          )
+        )}
+      </div>
 
       {digest && (
         <>

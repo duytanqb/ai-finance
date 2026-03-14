@@ -1200,6 +1200,39 @@ Lưu ý:
                 "summary": "Không thể phân tích dữ liệu. Vui lòng thử lại.",
             }
 
+    async def extract_recommendation(self, symbol: str, report_text: str) -> dict:
+        """Extract structured BUY/HOLD/SELL recommendation from deep research report."""
+        if not report_text:
+            return {"recommendation": "HOLD", "confidence": 0, "summary": "Không có dữ liệu"}
+
+        prompt = """Từ báo cáo phân tích cổ phiếu dưới đây, trích xuất thông tin khuyến nghị đầu tư.
+
+Trả về JSON:
+{
+  "recommendation": "BUY|HOLD|SELL",
+  "confidence": 0-100,
+  "target_price": số (giá mục tiêu VND, null nếu không có),
+  "entry_price": số (vùng giá mua vào VND, null nếu không có),
+  "stop_loss": số (mức cắt lỗ VND, null nếu không có),
+  "summary": "2-3 câu tóm tắt lý do khuyến nghị bằng tiếng Việt"
+}
+
+Lưu ý:
+- Nếu báo cáo khuyến nghị MUA/TÍCH LŨY → BUY
+- Nếu báo cáo khuyến nghị GIỮ/THEO DÕI → HOLD
+- Nếu báo cáo khuyến nghị BÁN/TRÁNH → SELL
+- Confidence dựa trên mức độ tự tin trong báo cáo
+- Giá trị VND (không chia 1000)"""
+
+        truncated = report_text[:8000] if len(report_text) > 8000 else report_text
+        result = await self.claude.analyze(prompt, _sanitize({"symbol": symbol, "report": truncated}))
+
+        try:
+            return _extract_json(result)
+        except (json.JSONDecodeError, ValueError):
+            logger.warning("Failed to parse recommendation for %s", symbol)
+            return {"recommendation": "HOLD", "confidence": 0, "summary": result[:200]}
+
     async def watchlist_review(self, symbols: list[str]) -> dict:
         """Review watchlist stocks with MA50 signal as primary indicator."""
         from datetime import datetime, timedelta

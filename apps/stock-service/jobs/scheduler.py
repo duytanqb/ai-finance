@@ -13,6 +13,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from jobs.digest import run_and_persist
 from jobs.fund_snapshot import run_fund_snapshot
+from jobs.stock_suggestions import run_stock_suggestions
 from jobs.watchlist_review import check_watchlist_signals
 from jobs.youtube_digest import run_youtube_digest
 
@@ -85,6 +86,15 @@ def start_scheduler():
         name="Weekly Fund Holdings Snapshot",
     )
 
+    scheduler.add_job(
+        run_stock_suggestions,
+        "cron",
+        hour=20,
+        minute=30,
+        id="stock_suggestions",
+        name="AI Stock Suggestions Pipeline",
+    )
+
     scheduler.start()
-    print("[Scheduler] Started — YouTube 06:00/18:00, Market Watch 07:00/19:00, Alert 30m, MA50 11:00, Fund snapshot Mon 06:00")
+    print("[Scheduler] Started — YouTube 06:00/18:00, Market Watch 07:00/19:00, Suggestions 20:30, Alert 30m, MA50 11:00, Fund Mon 06:00")
     return scheduler
