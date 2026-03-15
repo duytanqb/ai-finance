@@ -8,6 +8,7 @@ from decimal import Decimal
 logger = logging.getLogger(__name__)
 
 from services.claude_client import ClaudeClient
+from services.deepseek_client import DeepSeekClient
 from services.vnstock_client import VnstockClient
 
 
@@ -487,6 +488,7 @@ class AIWorkflowService:
     def __init__(self):
         self.vnstock = VnstockClient()
         self.claude = ClaudeClient()
+        self.deepseek = DeepSeekClient()
         self._fallback = None
 
     def _get_fallback(self):
@@ -917,7 +919,7 @@ IMPORTANT: Write ENTIRELY in Vietnamese. Use clear markdown. Be decisive in your
                 "balance_summary": c.get("balance_summary"),
             })
 
-        response = await self.claude.analyze(
+        response = await self.deepseek.analyze(
             QUICK_ASSESS_BATCH_PROMPT,
             _sanitize({"stocks": batch_data, "count": len(batch_data)}),
         )
@@ -944,7 +946,7 @@ IMPORTANT: Write ENTIRELY in Vietnamese. Use clear markdown. Be decisive in your
         self, headlines: list[dict], exclude_symbols: set[str]
     ) -> list[dict]:
         """Extract promising stock tickers from news headlines."""
-        response = await self.claude.analyze(
+        response = await self.deepseek.analyze(
             NEWS_EXTRACT_PROMPT,
             _sanitize({"headlines": headlines, "exclude": list(exclude_symbols)}),
         )
@@ -965,7 +967,7 @@ IMPORTANT: Write ENTIRELY in Vietnamese. Use clear markdown. Be decisive in your
             for i, h in enumerate(headlines)
         ]
 
-        response = await self.claude.analyze(
+        response = await self.deepseek.analyze(
             SECTOR_ANALYSIS_PROMPT,
             _sanitize({"headlines": news_data, "count": len(news_data), "date": datetime.now().strftime("%Y-%m-%d")}),
         )
@@ -1003,7 +1005,7 @@ IMPORTANT: Write ENTIRELY in Vietnamese. Use clear markdown. Be decisive in your
             })
 
         prompt = SECTOR_AWARE_BATCH_PROMPT.format(sector_context=sector_context)
-        response = await self.claude.analyze(
+        response = await self.deepseek.analyze(
             prompt,
             _sanitize({"stocks": batch_data, "count": len(batch_data)}),
         )
@@ -1050,7 +1052,7 @@ IMPORTANT: Write ENTIRELY in Vietnamese. Use clear markdown. Be decisive in your
             headlines=headline_text,
         )
 
-        response = await self.claude.analyze(prompt, _sanitize({"count": len(candidates), "limit": limit}))
+        response = await self.deepseek.analyze(prompt, _sanitize({"count": len(candidates), "limit": limit}))
 
         try:
             parsed = _extract_json(response)
@@ -1123,7 +1125,7 @@ Lưu ý:
             "transcript": transcript,
         }
 
-        result = await self.claude.analyze(prompt, _sanitize(data))
+        result = await self.deepseek.analyze(prompt, _sanitize(data))
 
         try:
             parsed = _extract_json(result)
@@ -1185,7 +1187,7 @@ Lưu ý:
 - Viết bằng tiếng Việt"""
 
         data = {"video_summaries": video_summaries}
-        result = await self.claude.analyze(prompt, _sanitize(data))
+        result = await self.deepseek.analyze(prompt, _sanitize(data))
 
         try:
             return _extract_json(result)
@@ -1225,7 +1227,7 @@ Lưu ý:
 - Giá trị VND (không chia 1000)"""
 
         truncated = report_text[:8000] if len(report_text) > 8000 else report_text
-        result = await self.claude.analyze(prompt, _sanitize({"symbol": symbol, "report": truncated}))
+        result = await self.deepseek.analyze(prompt, _sanitize({"symbol": symbol, "report": truncated}))
 
         try:
             return _extract_json(result)
@@ -1301,7 +1303,7 @@ Trả về JSON:
 
 Lưu ý: Viết bằng tiếng Việt. Signal BUY khi giá trên MA50 và các chỉ báo hỗ trợ."""
 
-        result = await self.claude.analyze(prompt, _sanitize({"stocks": valid_signals}))
+        result = await self.deepseek.analyze(prompt, _sanitize({"stocks": valid_signals}))
 
         try:
             ai_results = _extract_json(result)
