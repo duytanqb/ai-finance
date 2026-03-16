@@ -1301,93 +1301,101 @@ export default function MarketWatchPage() {
         suggestions.suggestions.filter((s) => s.status === "approved").length >
           0 ? (
           <div className="grid gap-3 sm:grid-cols-2">
-            {suggestions.suggestions
-              .filter((s) => s.status === "approved")
-              .map((s) => (
-                <div
-                  key={s.id}
-                  className="rounded-lg border border-zinc-100 dark:border-zinc-800 p-4 hover:border-emerald-200 dark:hover:border-emerald-800 transition-colors"
-                >
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-2">
-                      <Link
-                        href={`/stocks/${s.symbol}`}
-                        className="font-bold text-sm text-zinc-900 dark:text-zinc-100 hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors"
-                      >
-                        {s.symbol}
-                      </Link>
-                      <span className="text-xs text-zinc-400">{s.name}</span>
-                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-100 dark:bg-zinc-800 text-zinc-500">
-                        {s.exchange}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">
-                        BUY
-                      </span>
-                      <span className="text-[10px] font-medium text-zinc-400">
-                        {s.confidence}%
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Source badges */}
-                  <div className="flex flex-wrap gap-1 mb-2">
-                    {Array.from(new Set(s.sources.map((src) => src.type))).map(
-                      (type) => {
-                        const style = SOURCE_LABELS[type];
-                        return (
-                          <span
-                            key={type}
-                            className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${style?.color ?? "bg-zinc-100 text-zinc-500"}`}
-                          >
-                            {style?.label ?? type}
-                          </span>
-                        );
-                      },
-                    )}
-                    <span className="text-[10px] text-zinc-400 px-1">
-                      Score: {s.score}
+            {Array.from(
+              suggestions.suggestions
+                .filter((s) => s.status === "approved")
+                .reduce((map, s) => {
+                  const existing = map.get(s.symbol);
+                  if (!existing || s.score > existing.score)
+                    map.set(s.symbol, s);
+                  return map;
+                }, new Map<string, StockSuggestionItem>())
+                .values(),
+            ).map((s) => (
+              <div
+                key={s.id}
+                className="rounded-lg border border-zinc-100 dark:border-zinc-800 p-4 hover:border-emerald-200 dark:hover:border-emerald-800 transition-colors"
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <Link
+                      href={`/stocks/${s.symbol}`}
+                      className="font-bold text-sm text-zinc-900 dark:text-zinc-100 hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors"
+                    >
+                      {s.symbol}
+                    </Link>
+                    <span className="text-xs text-zinc-400">{s.name}</span>
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-100 dark:bg-zinc-800 text-zinc-500">
+                      {s.exchange}
                     </span>
                   </div>
-
-                  {/* Price targets */}
-                  {(s.entry_price || s.target_price || s.stop_loss) && (
-                    <div className="flex gap-3 text-xs mb-2">
-                      {s.entry_price && (
-                        <span className="text-zinc-500">
-                          Mua:{" "}
-                          <span className="font-mono font-medium text-zinc-700 dark:text-zinc-300">
-                            {s.entry_price.toLocaleString("vi-VN")}
-                          </span>
-                        </span>
-                      )}
-                      {s.target_price && (
-                        <span className="text-zinc-500">
-                          Mục tiêu:{" "}
-                          <span className="font-mono font-medium text-emerald-600">
-                            {s.target_price.toLocaleString("vi-VN")}
-                          </span>
-                        </span>
-                      )}
-                      {s.stop_loss && (
-                        <span className="text-zinc-500">
-                          Cắt lỗ:{" "}
-                          <span className="font-mono font-medium text-red-500">
-                            {s.stop_loss.toLocaleString("vi-VN")}
-                          </span>
-                        </span>
-                      )}
-                    </div>
-                  )}
-
-                  {s.deep_research_summary && (
-                    <p className="text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed">
-                      {s.deep_research_summary}
-                    </p>
-                  )}
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">
+                      BUY
+                    </span>
+                    <span className="text-[10px] font-medium text-zinc-400">
+                      {s.confidence}%
+                    </span>
+                  </div>
                 </div>
-              ))}
+
+                {/* Source badges */}
+                <div className="flex flex-wrap gap-1 mb-2">
+                  {Array.from(new Set(s.sources.map((src) => src.type))).map(
+                    (type) => {
+                      const style = SOURCE_LABELS[type];
+                      return (
+                        <span
+                          key={type}
+                          className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${style?.color ?? "bg-zinc-100 text-zinc-500"}`}
+                        >
+                          {style?.label ?? type}
+                        </span>
+                      );
+                    },
+                  )}
+                  <span className="text-[10px] text-zinc-400 px-1">
+                    Score: {s.score}
+                  </span>
+                </div>
+
+                {/* Price targets */}
+                {(s.entry_price || s.target_price || s.stop_loss) && (
+                  <div className="flex gap-3 text-xs mb-2">
+                    {s.entry_price && (
+                      <span className="text-zinc-500">
+                        Mua:{" "}
+                        <span className="font-mono font-medium text-zinc-700 dark:text-zinc-300">
+                          {s.entry_price.toLocaleString("vi-VN")}
+                        </span>
+                      </span>
+                    )}
+                    {s.target_price && (
+                      <span className="text-zinc-500">
+                        Mục tiêu:{" "}
+                        <span className="font-mono font-medium text-emerald-600">
+                          {s.target_price.toLocaleString("vi-VN")}
+                        </span>
+                      </span>
+                    )}
+                    {s.stop_loss && (
+                      <span className="text-zinc-500">
+                        Cắt lỗ:{" "}
+                        <span className="font-mono font-medium text-red-500">
+                          {s.stop_loss.toLocaleString("vi-VN")}
+                        </span>
+                      </span>
+                    )}
+                  </div>
+                )}
+
+                {s.deep_research_summary && (
+                  <p className="text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed">
+                    {s.deep_research_summary}
+                  </p>
+                )}
+              </div>
+            ))}
           </div>
         ) : (
           !sugRefreshing && (
