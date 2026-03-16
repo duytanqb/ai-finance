@@ -1,7 +1,8 @@
 """Scheduler for Market Watch pipeline, YouTube digest, price alerts, and watchlist MA50 checks.
 
-- YouTube digest: twice daily at 06:00 and 18:00 VN time
-- Market Watch digest: twice daily at 07:00 and 19:00 VN time
+- YouTube digest: daily at 18:00 VN time
+- Market Watch digest: daily at 19:00 VN time
+- Stock suggestions: daily at 20:30 VN time
 - Price alert check: every 30 minutes during market hours (Mon-Fri 9:00-15:00 VN time)
 - Watchlist MA50 signal check: daily at 11:00 VN time (Mon-Fri)
 """
@@ -41,7 +42,7 @@ def start_scheduler():
     scheduler.add_job(
         run_youtube_digest,
         "cron",
-        hour="6,18",
+        hour=18,
         minute=0,
         id="youtube_digest",
         name="YouTube Market Digest",
@@ -50,7 +51,7 @@ def start_scheduler():
     scheduler.add_job(
         run_and_persist,
         "cron",
-        hour="7,19",
+        hour=19,
         minute=0,
         id="market_watch_digest",
         name="Market Watch Digest Pipeline",
@@ -96,5 +97,5 @@ def start_scheduler():
     )
 
     scheduler.start()
-    print("[Scheduler] Started — YouTube 06:00/18:00, Market Watch 07:00/19:00, Suggestions 20:30, Alert 30m, MA50 11:00, Fund Mon 06:00")
+    print("[Scheduler] Started — YouTube 18:00, Market Watch 19:00, Suggestions 20:30, Alert 30m, MA50 11:00, Fund Mon 06:00")
     return scheduler
